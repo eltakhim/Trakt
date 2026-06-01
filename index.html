@@ -182,6 +182,7 @@
       <button data-f="watched">Watched</button>
       <button data-f="dismissed">Not interested</button>
       <button data-f="shared">Shared</button>
+      <button data-f="library">Library</button>
       <button data-f="all">All</button>
     </div>
     <div class="seg small" id="fType">
@@ -277,7 +278,21 @@ let sharedUnsub=null;
 /* ---- local persistence ---- */
 function snapshot(){const o={};st.forEach((v,k)=>{if(v.status||v.score)o[k]={status:v.status,score:v.score};});return o;}
 function applySnapshot(o){if(!o)return;st.forEach(v=>{v.status='';v.score=null;});for(const k in o){if(st.has(k)){st.get(k).status=o[k].status||'';st.get(k).score=o[k].score??null;}}}
-function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(snapshot()));}catch(e){}}
+// The actual list of recommendations currently in the queue (so a generated/imported
+// list survives reload and re-login, not just the marks on it).
+function currentRecs(){return [...st.values()].map(v=>v.rec);}
+function loadRecsList(list){
+  if(!Array.isArray(list)||!list.length)return false;
+  const marks=snapshot();
+  st.clear();
+  list.forEach((r,i)=>{const rec={r:r.r||i+1,t:r.t,y:r.y,k:r.k==='show'?'show':'movie',g:Array.isArray(r.g)?r.g:[],w:r.w||'',c:r.c||'A'};st.set(KID(rec),{rec,imdbID:null,imdbRating:null,poster:null,status:'',score:null});});
+  applySnapshot(marks);
+  return true;
+}
+const RECSLS='reel.recslist.v1';
+function saveRecsLocal(){try{localStorage.setItem(RECSLS,JSON.stringify(currentRecs()));}catch(e){}}
+function loadRecsLocal(){try{const l=JSON.parse(localStorage.getItem(RECSLS)||'null');return loadRecsList(l);}catch(e){return false;}}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(snapshot()));saveRecsLocal();}catch(e){}}
 function loadLocal(){try{applySnapshot(JSON.parse(localStorage.getItem(LS)||'{}'));}catch(e){}}
 function loadCache(){try{return JSON.parse(localStorage.getItem(CACHE)||'{}');}catch(e){return {};}}
 function saveCache(c){try{localStorage.setItem(CACHE,JSON.stringify(c));}catch(e){}}
@@ -306,7 +321,7 @@ function applySettings(s){
 }
 async function saveCloud(){
   if(!user||!db)return;
-  try{await db.collection('users').doc(user.uid).set({state:snapshot(),omdb:loadCache(),library:LIB,settings:localSettings(),updated:Date.now()},{merge:true});}
+  try{await db.collection('users').doc(user.uid).set({state:snapshot(),recs:currentRecs(),omdb:loadCache(),library:LIB,settings:localSettings(),updated:Date.now()},{merge:true});}
   catch(e){console.warn('cloud save failed',e);}
 }
 function watchCloud(){
@@ -316,6 +331,11 @@ function watchCloud(){
     const d=doc.data();if(!d)return;
     if(d.omdb){saveCache(d.omdb);applyCacheToState(d.omdb);}
     if(d.library){LIB=d.library;saveLib();}
+    if(Array.isArray(d.recs)&&d.recs.length){
+      // only rebuild if the list actually differs (avoid clobbering during local edits)
+      const cur=currentRecs();const same=cur.length===d.recs.length&&cur.every((r,i)=>r.t===d.recs[i].t&&r.y===d.recs[i].y);
+      if(!same){loadRecsList(d.recs);buildGenreBarFrom(currentRecs().flatMap(r=>r.g));applyCacheToState(loadCache());}
+    }
     if(d.settings){
       const prevGroup=GROUP;
       applySettings(d.settings);
@@ -393,6 +413,7 @@ function cardHTML(v){
 }
 function render(){
   if(fStatus==='shared'){renderShared();return;}
+  if(fStatus==='library'){renderLibrary();return;}
   $('sharebar').classList.add('hidden');$('sharebar').style.removeProperty('display');
   grid.innerHTML=visible().map(cardHTML).join('')||'<p style="color:var(--muted)">Nothing matches these filters.</p>';counts();
 }
@@ -509,14 +530,20 @@ function initFirebase(){
             GROUP=localStorage.getItem('reel.group.v1')||'';markGroup();
             const cb=$('autoImport');if(cb)cb.checked=localStorage.getItem('reel.autoimport.v1')==='1';
           }
+          // Restore the saved recommendation list (generated/imported) before marks.
+          if(d&&Array.isArray(d.recs)&&d.recs.length){loadRecsList(d.recs);buildGenreBarFrom(currentRecs().flatMap(r=>r.g));}
           if(d&&d.omdb){saveCache(d.omdb);applyCacheToState(d.omdb);}
           if(d&&d.library){LIB=d.library;saveLib();}
           if(d&&d.state&&Object.keys(d.state).length){applySnapshot(d.state);saveLocal();render();}
-          else{saveCloud();}
+          else{saveCloud();render();}
           watchCloud();
           if(GROUP)watchShared();
         });
-      }else{showGate();setSync(false,'signed out');$('signinBtn').textContent='Sign in';}
+      }else{showGate();setSync(false,'signed out');$('signinBtn').textContent='Sign in';
+        // On sign-out, drop the Trakt token + group so a different user on this same
+        // device can't inherit the previous person's Trakt connection or group.
+        traktToken=null;try{localStorage.removeItem(TK);}catch(e){}markTrakt(false);
+      }
     });
     return true;
   }catch(e){console.warn(e);return false;}
@@ -1044,7 +1071,68 @@ async function shareTitle(item){
 }
 async function unshare(id){
   if(!db||!GROUP)return;
-  try{await db.collection('shared').doc(GROUP).collection('recs').doc(id).delete();}catch(e){toast('Could not remove: '+e.message,'err');}
+  try{await db.collection('shared').doc(GROUP).collection('recs').doc(id).delete();}catch(e){}
+}
+
+/* ============================================================
+   LIBRARY TAB — full Trakt history as browsable cards
+   ============================================================ */
+const libPosters={}; // imdb -> {poster,imdbRating} cached
+function libItems(){
+  const out=[];
+  const push=(imdb,o,kind)=>out.push({imdb,t:o.title,y:o.year,k:kind,rating:o.rating,watched:!!o.watched,watchlisted:!!o.watchlisted});
+  Object.keys(LIB.movies||{}).forEach(im=>push(im,LIB.movies[im],'movie'));
+  Object.keys(LIB.shows||{}).forEach(im=>push(im,LIB.shows[im],'show'));
+  return out;
+}
+function renderLibrary(){
+  $('sharebar').classList.add('hidden');$('sharebar').style.removeProperty('display');
+  let arr=libItems();
+  if(!arr.length){grid.innerHTML='<p style="color:var(--muted)">Your library is empty. Connect Trakt and use “Import everything from Trakt”.</p>';return;}
+  // apply type/genre(n.a.)/search filters; status sub-filter via the same tabs isn't used here
+  if(fType!=='all')arr=arr.filter(i=>i.k===fType);
+  if(search)arr=arr.filter(i=>(i.t||'').toLowerCase().includes(search));
+  // sort: rated desc, then title
+  arr.sort((a,b)=>(b.rating||0)-(a.rating||0)||(a.t||'').localeCompare(b.t||''));
+  grid.innerHTML='<p style="color:var(--muted);grid-column:1/-1;margin:0 0 4px">Your full Trakt library — '+arr.length+' titles. Read-only here; manage on Trakt.</p>'+
+    arr.map(i=>{
+      const c=libPosters[i.imdb]||{};
+      const ps=c.poster?`style="background-image:url('${c.poster}')"`:'';
+      const ph=c.poster?'':`<div class="ph">${(i.t||'?')[0]}</div>`;
+      const badges=[];
+      if(i.watched)badges.push('<span class="gtag" style="color:var(--green)">watched</span>');
+      if(i.watchlisted)badges.push('<span class="gtag" style="color:var(--watch)">watchlist</span>');
+      const imdb=c.imdbRating?`<span class="imdb">★ ${c.imdbRating}</span>`:'';
+      const mine=i.rating?`<span style="color:var(--teal);font-weight:700;font-size:12px">my ${i.rating}/10</span>`:'';
+      return `<div class="card"><div class="top"><div class="poster" ${ps}>${ph}</div>
+        <div class="head"><p class="ttl">${i.t}</p>
+          <div class="sub"><span class="type">${i.k==='movie'?'Film':'Series'}</span><span>${i.y||''}</span>${imdb}${mine}</div>
+          <div class="genres">${badges.join('')}</div></div></div></div>`;
+    }).join('');
+  counts();
+  lazyLoadLibPosters(arr);
+}
+let libLoading=false;
+async function lazyLoadLibPosters(arr){
+  const key=$('key').value.trim();if(!key||libLoading)return;
+  const need=arr.filter(i=>i.imdb&&!libPosters[i.imdb]).slice(0,60); // cap per render to spare OMDb quota
+  if(!need.length)return;
+  libLoading=true;let idx=0;
+  async function worker(){
+    while(idx<need.length){
+      const i=need[idx++];
+      try{
+        const r=await fetch('https://www.omdbapi.com/?i='+i.imdb+'&apikey='+encodeURIComponent(key));
+        const j=await r.json();
+        if(j&&j.Response!=='False'){libPosters[i.imdb]={poster:(j.Poster&&j.Poster!=='N/A')?j.Poster:null,imdbRating:(j.imdbRating&&j.imdbRating!=='N/A')?j.imdbRating:null};}
+        else if(j&&/limit reached/i.test(j.Error||'')){break;}
+        else libPosters[i.imdb]={};
+      }catch(e){libPosters[i.imdb]={};}
+    }
+  }
+  await Promise.all([worker(),worker(),worker()]);
+  libLoading=false;
+  if(fStatus==='library')renderLibrary(); // re-render with fetched posters
 }
 
 function renderShared(){
@@ -1171,6 +1259,7 @@ function openPromptEditor(){
 $('promptBtn').addEventListener('click',openPromptEditor);
 
 
+loadRecsLocal();   // restore last generated/imported list (if any) before marks
 loadLocal();
 loadLib();
 try{applyCacheToState(loadCache());}catch(e){}

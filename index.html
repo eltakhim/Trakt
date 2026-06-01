@@ -210,6 +210,7 @@
     <div class="spacer"></div>
     <button class="btn ghost sm" id="aiBtn">Export for AI</button>
     <button class="btn ghost sm" id="importBtn">Import AI list</button>
+    <button class="btn sm" id="generateBtn">✨ Generate list</button>
     <button class="btn sm" id="traktExportBtn">Push to Trakt</button>
   </div>
 </div>
@@ -283,7 +284,9 @@ function localSettings(){
     group:localStorage.getItem('reel.group.v1')||'',
     name:localStorage.getItem('reel.displayname.v1')||'',
     prompt:localStorage.getItem('reel.prompt.v1')||'',
-    autoimport:localStorage.getItem('reel.autoimport.v1')||'0'
+    autoimport:localStorage.getItem('reel.autoimport.v1')||'0',
+    aikey:localStorage.getItem('reel.aikey.v1')||'',
+    aimodel:localStorage.getItem('reel.aimodel.v1')||'gemini-2.0-flash'
   };
 }
 function applySettings(s){
@@ -292,6 +295,8 @@ function applySettings(s){
   if(s.name)localStorage.setItem('reel.displayname.v1',s.name);
   if(s.prompt)localStorage.setItem('reel.prompt.v1',s.prompt);
   if(s.autoimport!=null)localStorage.setItem('reel.autoimport.v1',s.autoimport);
+  if(s.aikey!=null)localStorage.setItem('reel.aikey.v1',s.aikey);
+  if(s.aimodel)localStorage.setItem('reel.aimodel.v1',s.aimodel);
 }
 async function saveCloud(){
   if(!user||!db)return;
@@ -721,26 +726,93 @@ $('fileInput').addEventListener('change',async e=>{
     const txt=await f.text();const j=JSON.parse(txt);
     let list=j.recs||j.RECS||(Array.isArray(j)?j:null);
     if(!list){toast('Could not find a recs array in that file','err');return;}
-    // rebuild RECS + state, preserving any existing status/score by title|year
-    const prev=snapshot();
-    st.clear();
-    list.forEach((r,i)=>{
-      const rec={r:r.r||i+1,t:r.t,y:r.y,k:r.k==='show'?'show':'movie',g:Array.isArray(r.g)?r.g:[],w:r.w||'',c:r.c||'A'};
-      st.set(KID(rec),{rec,imdbID:null,imdbRating:null,poster:null,status:'',score:null});
-    });
-    applySnapshot(prev); // carry over marks for titles that survived
-    buildGenreBarFrom([...st.values()].flatMap(v=>v.rec.g));
-    persist();render();
+    applyRecsList(list);
     toast('Imported '+list.length+' recommendations','ok');
     closeDlg();
   }catch(err){toast('Import error: '+err.message,'err');}
   e.target.value='';
 });
+// Shared by file-import and AI-generate: replace the queue with a new ranked list,
+// preserving any marks/scores for titles that survive.
+function applyRecsList(list){
+  const prev=snapshot();
+  st.clear();
+  list.forEach((r,i)=>{
+    const rec={r:r.r||i+1,t:r.t,y:r.y,k:r.k==='show'?'show':'movie',g:Array.isArray(r.g)?r.g:[],w:r.w||'',c:r.c||'A'};
+    st.set(KID(rec),{rec,imdbID:null,imdbRating:null,poster:null,status:'',score:null});
+  });
+  applySnapshot(prev);
+  buildGenreBarFrom([...st.values()].flatMap(v=>v.rec.g));
+  persist();render();
+}
 function buildGenreBarFrom(genres){
   const set=[...new Set(genres)].sort();
   const sel=$('genreSelect');if(sel)sel.innerHTML='<option value="">All genres</option>'+set.map(g=>`<option value="${g}">${g}</option>`).join('');
   fGenre=null;
 }
+
+/* ============================================================
+   IN-APP AI GENERATION (Google Gemini — allows browser calls)
+   ============================================================ */
+const GEMINI_MODELS=[
+  {id:'gemini-2.0-flash',label:'Gemini 2.0 Flash (fast, free)'},
+  {id:'gemini-2.0-flash-lite',label:'Gemini 2.0 Flash-Lite (fastest)'},
+  {id:'gemini-1.5-pro',label:'Gemini 1.5 Pro (higher quality)'},
+  {id:'gemini-1.5-flash',label:'Gemini 1.5 Flash'}
+];
+$('generateBtn').addEventListener('click',openGenerate);
+function openGenerate(){
+  const key=localStorage.getItem('reel.aikey.v1')||'';
+  const model=localStorage.getItem('reel.aimodel.v1')||'gemini-2.0-flash';
+  openDlg(`<h2>Generate a fresh list</h2>
+    <p>Uses your taste profile + Google Gemini to build a new ranked queue — no leaving the app, no file shuffling. Get a free Gemini key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--teal)">aistudio.google.com/apikey</a>.</p>
+    <h3>Gemini API key</h3>
+    <div class="keyrow"><input id="aiKeyInput" type="text" placeholder="AIza…" value="${key.replace(/"/g,'&quot;')}" style="width:100%"></div>
+    <h3>Model</h3>
+    <select id="aiModelSel" style="width:100%">${GEMINI_MODELS.map(m=>`<option value="${m.id}" ${m.id===model?'selected':''}>${m.label}</option>`).join('')}</select>
+    <div class="row" style="margin-top:14px"><button class="btn" id="aiGenRun">Generate 50 picks</button><button class="btn ghost" id="aiGenSave">Save key only</button></div>
+    <p class="note" id="aiGenMsg"></p>
+    <p class="note" style="opacity:.8">Your key syncs to your private account so it works across your devices. Note: because the app runs in the browser, treat any in-browser key as low-sensitivity — use a Gemini key you're comfortable rotating, not a high-value one.</p>`);
+  $('aiGenSave').onclick=()=>{saveAIKey();$('aiGenMsg').innerHTML='<span class="ok">Saved &amp; synced.</span>';};
+  $('aiGenRun').onclick=runGenerate;
+}
+function saveAIKey(){
+  localStorage.setItem('reel.aikey.v1',$('aiKeyInput').value.trim());
+  localStorage.setItem('reel.aimodel.v1',$('aiModelSel').value);
+  if(user)saveCloud();
+}
+async function runGenerate(){
+  saveAIKey();
+  const key=$('aiKeyInput').value.trim();const model=$('aiModelSel').value;
+  const msg=$('aiGenMsg');
+  if(!key){msg.innerHTML='<span class="err">Enter your Gemini key first.</span>';return;}
+  msg.innerHTML='Generating… this can take 10–30s.';
+  const p=tasteProfile();
+  const profile={likes:["constructed twist/mystery thrillers","prestige epics","grounded emotional sci-fi","humanist/Indian drama","quality animation, minimal anime"],
+    dislikes:["reality TV","anthologies","comedy-of-ideas","cold/slow arthouse","heavy anime"],
+    my_ratings:p.ratings,watchlist:p.watchlist,not_interested:p.notInterested,avoid_already_seen:p.seen};
+  const instruction=getPrompt()+'\n\nHere is my data (JSON):\n'+JSON.stringify(profile);
+  try{
+    const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:instruction}]}],generationConfig:{temperature:0.7,responseMimeType:"application/json"}})});
+    const j=await r.json();
+    if(!r.ok){msg.innerHTML='<span class="err">Gemini error: '+((j.error&&j.error.message)||r.status)+'</span>';return;}
+    let text=(((j.candidates||[])[0]||{}).content||{}).parts;text=text&&text[0]&&text[0].text;
+    if(!text){msg.innerHTML='<span class="err">Empty response from Gemini.</span>';return;}
+    text=text.replace(/```json|```/g,'').trim();
+    let parsed;try{parsed=JSON.parse(text);}catch(e){
+      const m2=text.match(/\{[\s\S]*\}/);if(m2){try{parsed=JSON.parse(m2[0]);}catch(e2){}}
+    }
+    const list=parsed&&(parsed.recs||parsed.RECS||(Array.isArray(parsed)?parsed:null));
+    if(!list||!list.length){msg.innerHTML='<span class="err">Could not parse a recommendations list from the reply. Try again or use file import.</span>';return;}
+    applyRecsList(list);
+    msg.innerHTML='<span class="ok">Generated '+list.length+' picks. Loading posters…</span>';
+    if($('key').value.trim())loadIMDb();
+    setTimeout(closeDlg,900);
+  }catch(e){msg.innerHTML='<span class="err">Request failed: '+e.message+'</span>';}
+}
+
 
 /* Push to Trakt button (bottom bar): direct if connected, else file fallback */
 $('traktExportBtn').addEventListener('click',()=>{

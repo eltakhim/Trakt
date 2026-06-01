@@ -401,15 +401,21 @@ async function connectTrakt(){
     <div class="big">${dev.user_code}</div>
     <p id="tkWait">Waiting for you to approve…</p>`);
   const deadline=Date.now()+(dev.expires_in||600)*1000;const interval=(dev.interval||5)*1000;
+  let netErrs=0;
   while(Date.now()<deadline){
     await new Promise(r=>setTimeout(r,interval));
     try{
       const r=await fetch(TRAKT_TOKEN_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:dev.device_code})});
+      netErrs=0;
       if(r.status===200){const tok=await r.json();traktToken=tok.access_token;localStorage.setItem(TK,JSON.stringify(tok));markTrakt(true);
         const w=$('tkWait');if(w)w.innerHTML='<span class="ok">Connected. You can import or push now.</span>';return;}
-    }catch(e){}
+    }catch(e){
+      netErrs++;
+      const w=$('tkWait');
+      if(w&&netErrs>=2)w.innerHTML='<span class="err">Can\u2019t reach the token function (likely CORS / unauthenticated). Redeploy the function and allow public access, then retry. Approval on Trakt is fine.</span>';
+    }
   }
-  const w=$('tkWait');if(w)w.innerHTML='<span class="err">Timed out — try again.</span>';
+  const w=$('tkWait');if(w)w.innerHTML='<span class="err">Timed out \u2014 try again.</span>';
 }
 $('traktBtn').addEventListener('click',connectTrakt);
 

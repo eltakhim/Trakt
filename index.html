@@ -55,6 +55,17 @@
   .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal-dim),var(--teal));transition:width .25s}
 
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:16px;margin-top:10px}
+  .sharebar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-top:10px}
+  .sharebar input#shareSearch{flex:1 1 240px}
+  .shareResults{display:flex;gap:10px;flex-wrap:wrap;width:100%;margin-top:4px}
+  .shareResult{display:flex;gap:9px;align-items:center;background:#0a0d10;border:1px solid var(--line);border-radius:10px;padding:8px;width:240px}
+  .shareResult img{width:40px;height:60px;object-fit:cover;border-radius:5px;background:#11161b}
+  .shareResult .info{flex:1;min-width:0}
+  .shareResult .info b{font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .shareResult .info span{font-size:11.5px;color:var(--muted)}
+  .shareResult button{background:var(--teal);color:#06201d;font-weight:700;font-size:11px;padding:6px 9px;border-radius:7px}
+  .sharedMeta{font-size:11px;color:var(--muted);padding:0 13px 10px;margin-top:-2px}
+  .sharedMeta b{color:var(--teal)}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:border-color .18s,transform .18s}
   .card:hover{border-color:var(--teal-dim);transform:translateY(-2px)}
   .card.is-watched{border-color:var(--green)}.card.is-watch{border-color:var(--watch)}
@@ -123,6 +134,8 @@
         <label class="pill" id="autoImportWrap" style="cursor:pointer"><input type="checkbox" id="autoImport" style="margin:0">auto-sync from Trakt</label>
         <button class="btn ghost sm" id="signinBtn">Sign in to sync</button>
         <button class="btn ghost sm" id="traktBtn">Connect Trakt</button>
+        <button class="btn ghost sm" id="groupBtn">Group</button>
+        <button class="btn ghost sm" id="promptBtn">AI prompt</button>
         <button class="btn ghost sm" id="helpBtn">Setup</button>
       </div>
     </div>
@@ -148,6 +161,7 @@
       <button data-f="watch">Watchlist</button>
       <button data-f="watched">Watched</button>
       <button data-f="dismissed">Not interested</button>
+      <button data-f="shared">Shared</button>
       <button data-f="all">All</button>
     </div>
     <div class="seg small" id="fType">
@@ -162,6 +176,13 @@
     <span><b id="done">0</b>/<span id="total">0</span> IMDb loaded</span>
     <div class="bar"><i id="prog"></i></div>
     <span id="fails"></span>
+  </div>
+
+  <div class="sharebar hidden" id="sharebar">
+    <input id="shareSearch" type="text" placeholder="Search a title to share with your group…">
+    <select id="shareFor"><option value="">For everyone</option></select>
+    <button class="btn sm" id="shareSearchBtn">Search</button>
+    <div id="shareResults" class="shareResults"></div>
   </div>
 
   <div class="grid" id="grid"></div>
@@ -305,11 +326,15 @@ function cardHTML(v){
       <div class="myrate"><div class="lbl"><span>my rating</span><b>${shown}</b></div>
         <div class="chips">${chips}</div></div></div></div>`;
 }
-function render(){grid.innerHTML=visible().map(cardHTML).join('')||'<p style="color:var(--muted)">Nothing matches these filters.</p>';counts();}
+function render(){
+  if(fStatus==='shared'){renderShared();return;}
+  $('sharebar').classList.add('hidden');
+  grid.innerHTML=visible().map(cardHTML).join('')||'<p style="color:var(--muted)">Nothing matches these filters.</p>';counts();
+}
 function counts(){let w=0,d=0,r=0,q=0;st.forEach(v=>{if(v.status==='watch')w++;if(v.status==='watched')d++;if(v.score)r++;if(!v.status)q++;});$('cW').textContent=w;$('cD').textContent=d;$('cR').textContent=r;const qe=$('cQ');if(qe)qe.textContent=q;}
 
 grid.addEventListener('click',e=>{
-  const b=e.target.closest('button');if(!b)return;
+  const b=e.target.closest('button');if(!b||b.dataset.sact)return;
   const v=st.get(b.dataset.id),act=b.dataset.act;if(!v)return;
   if(act==='score'){v.score=parseInt(b.dataset.v,10);}
   else if(act==='watch'){v.status=v.status==='watch'?'':'watch';}
@@ -397,6 +422,7 @@ function initFirebase(){
           if(d&&d.state&&Object.keys(d.state).length){applySnapshot(d.state);saveLocal();render();}
           else{saveCloud();}
           watchCloud();
+          if(GROUP)watchShared();
         });
       }else{setSync(false,'local only');$('signinBtn').textContent='Sign in to sync';}
     });
@@ -590,24 +616,9 @@ $('aiBtn').addEventListener('click',()=>{
     avoid_already_seen:p.seen
   };
   dl('reel-taste-profile.json',JSON.stringify(data,null,2),'application/json');
-  const prompt=`Recommend exactly 50 movies & TV shows for me, ranked from most to least likely I'll love. Quality over quantity — 50 precise picks, not filler.
-
-I've attached reel-taste-profile.json (my actual viewing data).
-- "avoid_already_seen" and "not_interested" are HARD exclusion lists — NEVER recommend anything on either.
-- "my_ratings" are my exact 1-10 scores — learn the patterns in what I rate 8-10 vs 6-7.
-- Match "likes", strictly respect "dislikes". In particular: keep Japanese anime to an absolute minimum (ideally none unless it's a genuine all-time great), and never suggest reality TV, anthologies, or slow arthouse.
-
-Favour my specific threads: constructed twist thrillers, grounded emotional sci-fi, prestige epics, strong Indian cinema, and humanist drama with momentum. Lean toward things I likely HAVEN'T seen — avoid the obvious IMDb-Top-250 picks I've almost certainly watched.
-
-Return ONLY a JSON object in exactly this shape, no prose, no markdown:
-{"recs":[{"r":1,"t":"Title","y":2016,"k":"movie","g":["Thriller","Sci-Fi"],"w":"one specific sentence on why it fits MY taste","c":"S"}]}
-- r = rank, unique 1..50 (1 = most likely I'll love)
-- k = "movie" or "show"
-- g = 1-3 genre tags
-- c = "S" (top pick), "A" (strong), or "B" (worth a shot)
-Order the array by r ascending.`;
+  const prompt=getPrompt();
   openDlg(`<h2>Export for AI</h2>
-    <p>Downloaded <code>reel-taste-profile.json</code> (includes your ratings, watched, watchlist, and not-interested lists). Start a new AI chat, attach that file, and paste the prompt below. Save its JSON reply as a <code>.json</code> file and use “Import AI list”.</p>
+    <p>Downloaded <code>reel-taste-profile.json</code> (includes your ratings, watched, watchlist, and not-interested lists). Start a new AI chat, attach that file, and paste the prompt below. Save its JSON reply as a <code>.json</code> file and use “Import AI list”. <i>Edit this prompt anytime via the “AI prompt” button.</i></p>
     <h3>Prompt</h3><pre id="aiPrompt">${prompt.replace(/</g,'&lt;')}</pre>
     <div class="row"><button class="btn" id="copyPrompt">Copy prompt</button></div>`);
   $('copyPrompt').onclick=()=>{navigator.clipboard.writeText(prompt);$('copyPrompt').textContent='Copied ✓';};
@@ -720,9 +731,161 @@ async function silentImport(){
 }
 
 /* ============================================================
-   BOOT
+   SHARED GROUP SPACE  (common rec pool for a small known group)
    ============================================================ */
-buildGenreBar();
+const GROUPKEY='reel.group.v1', NAMEKEY='reel.displayname.v1';
+let GROUP=localStorage.getItem(GROUPKEY)||'';
+let sharedItems=[]; // cached shared docs
+let sharedUnsub=null;
+
+function myName(){return localStorage.getItem(NAMEKEY)|| (user&&(user.displayName||user.email)) || 'me';}
+
+function watchShared(){
+  if(sharedUnsub){sharedUnsub();sharedUnsub=null;}
+  if(!db||!GROUP)return;
+  sharedUnsub=db.collection('shared').doc(GROUP).collection('recs').orderBy('ts','desc')
+    .onSnapshot(snap=>{
+      sharedItems=snap.docs.map(d=>Object.assign({_id:d.id},d.data()));
+      // keep the "share for" dropdown populated with known members
+      const names=[...new Set(sharedItems.map(s=>s.by).filter(Boolean))];
+      const sel=$('shareFor');if(sel){const cur=sel.value;sel.innerHTML='<option value="">For everyone</option>'+names.filter(n=>n!==myName()).map(n=>`<option value="${n}">For ${n}</option>`).join('');sel.value=cur;}
+      if(fStatus==='shared')renderShared();
+    },err=>console.warn('shared watch failed',err));
+}
+
+async function shareTitle(item){
+  if(!db){toast('Sign in first to share.','err');return;}
+  if(!GROUP){openGroup();return;}
+  const forWho=$('shareFor')?$('shareFor').value:'';
+  try{
+    await db.collection('shared').doc(GROUP).collection('recs').add({
+      t:item.t,y:item.y,k:item.k,imdb:item.imdb||null,poster:item.poster||null,imdbRating:item.imdbRating||null,
+      by:myName(),uid:(user?user.uid:null),forWho:forWho||null,ts:Date.now()
+    });
+    toast('Shared with the group.','ok');
+  }catch(e){toast('Share failed: '+e.message,'err');}
+}
+async function unshare(id){
+  if(!db||!GROUP)return;
+  try{await db.collection('shared').doc(GROUP).collection('recs').doc(id).delete();}catch(e){toast('Could not remove: '+e.message,'err');}
+}
+
+function renderShared(){
+  $('sharebar').classList.remove('hidden');
+  if(!GROUP){grid.innerHTML='<p style="color:var(--muted)">Join a group first (top-right “Group” button) to share and see recommendations.</p>';return;}
+  if(!sharedItems.length){grid.innerHTML='<p style="color:var(--muted)">No shared recommendations yet. Search a title above to share one.</p>';return;}
+  grid.innerHTML=sharedItems.map(s=>{
+    const ps=s.poster?`style="background-image:url('${s.poster}')"`:'';
+    const ph=s.poster?'':`<div class="ph">${(s.t||'?')[0]}</div>`;
+    const imdb=s.imdbRating?`<span class="imdb">★ ${s.imdbRating}</span>`:'';
+    const forTag=s.forWho?` · for <b>${s.forWho}</b>`:'';
+    const mine=s.by===myName();
+    const inLib=s.imdb&&[...st.values()].some(v=>v.imdbID===s.imdb);
+    return `<div class="card">
+      <div class="top"><div class="poster" ${ps}>${ph}</div>
+        <div class="head"><p class="ttl">${s.t}</p>
+          <div class="sub"><span class="type">${s.k==='movie'?'Film':'Series'}</span><span>${s.y||''}</span>${imdb}</div>
+          <p class="why">shared by <b style="color:var(--teal)">${s.by||'someone'}</b>${forTag}</p></div></div>
+      <div class="actions"><div class="statusrow">
+        <button data-sact="addwatch" data-sid="${s._id}">＋ My Watchlist</button>
+        ${mine?`<button data-sact="remove" data-sid="${s._id}" title="Remove">✕</button>`:''}
+      </div></div></div>`;
+  }).join('');
+}
+
+grid.addEventListener('click',async e=>{
+  const b=e.target.closest('button[data-sact]');if(!b)return;
+  const s=sharedItems.find(x=>x._id===b.dataset.sid);if(!s)return;
+  if(b.dataset.sact==='remove'){await unshare(s._id);}
+  else if(b.dataset.sact==='addwatch'){
+    // add to my own watchlist: match existing card by imdb, else store in library as watchlisted
+    let found=null;st.forEach(v=>{if(s.imdb&&v.imdbID===s.imdb)found=v;});
+    if(found){found.status='watch';persist();toast('Added to your watchlist.','ok');}
+    else{const bucket=s.k==='movie'?LIB.movies:LIB.shows;if(s.imdb){bucket[s.imdb]=Object.assign({title:s.t,year:s.y},bucket[s.imdb],{watchlisted:true});saveLib();if(user)persist();}toast('Saved to your watchlist data.','ok');}
+  }
+});
+
+// share-search (OMDb)
+$('shareSearchBtn').addEventListener('click',doShareSearch);
+$('shareSearch').addEventListener('keydown',e=>{if(e.key==='Enter')doShareSearch();});
+async function doShareSearch(){
+  const q=$('shareSearch').value.trim();if(!q)return;
+  const key=$('key').value.trim();if(!key){toast('Enter your OMDb key first (top toolbar).','err');return;}
+  const box=$('shareResults');box.innerHTML='<span style="color:var(--muted);font-size:13px">Searching…</span>';
+  try{
+    const r=await fetch('https://www.omdbapi.com/?s='+encodeURIComponent(q)+'&apikey='+encodeURIComponent(key));
+    const j=await r.json();
+    if(j.Response==='False'){box.innerHTML='<span class="err" style="font-size:13px">No matches.</span>';return;}
+    box.innerHTML=j.Search.slice(0,6).map((m,i)=>{
+      const poster=m.Poster&&m.Poster!=='N/A'?`<img src="${m.Poster}">`:'<div style="width:40px;height:60px"></div>';
+      return `<div class="shareResult">${poster}<div class="info"><b>${m.Title}</b><span>${m.Year} · ${m.Type==='series'?'Series':'Film'}</span></div>
+        <button data-share="${i}">Share</button></div>`;
+    }).join('');
+    box.querySelectorAll('button[data-share]').forEach(btn=>{
+      btn.onclick=async()=>{
+        const m=j.Search[+btn.dataset.share];
+        // fetch full detail for imdb rating
+        let det={};try{det=await(await fetch('https://www.omdbapi.com/?i='+m.imdbID+'&apikey='+encodeURIComponent(key))).json();}catch(e){}
+        await shareTitle({t:m.Title,y:parseInt(m.Year),k:m.Type==='series'?'show':'movie',imdb:m.imdbID,poster:(m.Poster&&m.Poster!=='N/A')?m.Poster:null,imdbRating:(det.imdbRating&&det.imdbRating!=='N/A')?det.imdbRating:null});
+        btn.textContent='Shared ✓';btn.disabled=true;
+      };
+    });
+  }catch(e){box.innerHTML='<span class="err" style="font-size:13px">Search error: '+e.message+'</span>';}
+}
+
+function openGroup(){
+  openDlg(`<h2>Group sharing</h2>
+    <p>A group is a shared code. Everyone who enters the same code shares one common recommendations pool — your private tracking stays separate. Pick any code and share it with your friends (e.g. a word only you'd know).</p>
+    <h3>Your display name (shown on shared items)</h3>
+    <div class="keyrow"><input id="gName" type="text" placeholder="e.g. Shen" value="${(localStorage.getItem(NAMEKEY)||'').replace(/"/g,'&quot;')}"></div>
+    <h3>Group code</h3>
+    <div class="keyrow"><input id="gCode" type="text" placeholder="e.g. movie-night-42" value="${GROUP.replace(/"/g,'&quot;')}"></div>
+    <div class="row"><button class="btn" id="gJoin">Join / switch group</button>${GROUP?'<button class="btn ghost" id="gLeave">Leave group</button>':''}</div>
+    <p class="note">Anyone with the code can read and post to this pool, so use a non-obvious code and only share it with people you trust.</p>
+    <p class="note" id="gMsg"></p>`);
+  $('gJoin').onclick=()=>{
+    const nm=$('gName').value.trim();const code=$('gCode').value.trim().toLowerCase().replace(/[^a-z0-9-]/g,'');
+    if(nm)localStorage.setItem(NAMEKEY,nm);
+    if(!code){$('gMsg').innerHTML='<span class="err">Enter a code.</span>';return;}
+    GROUP=code;localStorage.setItem(GROUPKEY,code);watchShared();
+    $('gMsg').innerHTML='<span class="ok">Joined “'+code+'”. Open the Shared tab.</span>';markGroup();
+  };
+  const lv=$('gLeave');if(lv)lv.onclick=()=>{GROUP='';localStorage.removeItem(GROUPKEY);if(sharedUnsub){sharedUnsub();sharedUnsub=null;}sharedItems=[];markGroup();closeDlg();render();};
+}
+function markGroup(){const b=$('groupBtn');if(b)b.textContent=GROUP?('Group · '+GROUP):'Group';}
+$('groupBtn').addEventListener('click',openGroup);
+
+/* ============================================================
+   CUSTOM AI PROMPT
+   ============================================================ */
+const PROMPTKEY='reel.prompt.v1';
+function defaultPrompt(){
+  return `Recommend exactly 50 movies & TV shows for me, ranked from most to least likely I'll love. Quality over quantity.
+
+I've attached reel-taste-profile.json (my actual viewing data).
+- "avoid_already_seen" and "not_interested" are HARD exclusion lists — NEVER recommend anything on either.
+- "my_ratings" are my exact 1-10 scores — learn what I rate 8-10 vs 6-7.
+- Match "likes", strictly respect "dislikes" (minimal Japanese anime; no reality TV, anthologies, or slow arthouse).
+
+Favour: constructed twist thrillers, grounded emotional sci-fi, prestige epics, strong Indian cinema, humanist drama with momentum. Avoid obvious IMDb-Top-250 picks I've likely seen.
+
+Return ONLY this JSON, no prose:
+{"recs":[{"r":1,"t":"Title","y":2016,"k":"movie","g":["Thriller","Sci-Fi"],"w":"why it fits MY taste","c":"S"}]}
+- r = rank 1..50 (1 = best fit), k = "movie"|"show", g = 1-3 genres, c = "S"|"A"|"B". Order by r ascending.`;
+}
+function getPrompt(){return localStorage.getItem(PROMPTKEY)||defaultPrompt();}
+function openPromptEditor(){
+  openDlg(`<h2>Customise your AI prompt</h2>
+    <p>This is the prompt “Export for AI” copies for you. Edit it to taste — yours and a friend's can differ. Saved on this device.</p>
+    <textarea id="promptTA" style="width:100%;min-height:240px;background:#0a0d10;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:12px;font:inherit;font-size:13px;line-height:1.5">${getPrompt().replace(/</g,'&lt;')}</textarea>
+    <div class="row"><button class="btn" id="pSave">Save</button><button class="btn ghost" id="pReset">Reset to default</button></div>
+    <p class="note" id="pMsg"></p>`);
+  $('pSave').onclick=()=>{localStorage.setItem(PROMPTKEY,$('promptTA').value);$('pMsg').innerHTML='<span class="ok">Saved.</span>';};
+  $('pReset').onclick=()=>{$('promptTA').value=defaultPrompt();localStorage.removeItem(PROMPTKEY);$('pMsg').innerHTML='<span class="ok">Reset.</span>';};
+}
+$('promptBtn').addEventListener('click',openPromptEditor);
+
+
 loadLocal();
 loadLib();
 try{applyCacheToState(loadCache());}catch(e){}
@@ -731,6 +894,7 @@ const fbOk=initFirebase();
 if(!fbOk)setSync(false,'local only');
 loadTraktToken();
 initAutoImport();
+markGroup();
 window.addEventListener('load',()=>{
   if($('key').value.trim()) loadIMDb().then(()=>{
     if($('autoImport') && $('autoImport').checked && traktToken) silentImport();

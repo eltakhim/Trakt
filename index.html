@@ -236,15 +236,11 @@ const FIREBASE_CONFIG = {
 const TRAKT_CLIENT_ID = "cab14c3161565c963cc283cf1b39b69a99011d07eaacb4cee1d598d342270553"; // Trakt app Client ID (public, safe to embed)
 
 // ── ACCESS CONTROL ───────────────────────────────────────────
-// Only these Google account emails may sign in and use the app.
-// Add your friend's email here too. Lowercase. Edit anytime + re-upload.
-const ALLOWED_EMAILS = [
-  "mehditakhim@gmail.com"
-  ,"mohammed.arabi.had@gmail.com"
-];
-// Your own email — your OMDb key pre-fills only for you; everyone else starts blank.
-const OWNER_EMAIL = "mehditakhim@gmail.com";
-const OWNER_OMDB_KEY = "a86e2251"; // pre-filled only when OWNER_EMAIL signs in
+// The allowlist is NOT stored here (kept out of the public repo).
+// It lives in Firestore at  config/access  →  { emails: [...], owner: "..." }
+// The app reads it at sign-in; the Firestore rules enforce it.
+// To manage who can use the app, edit that one Firestore document — no code edits.
+let ACCESS={emails:[],owner:''};   // populated from Firestore at runtime
 // ─────────────────────────────────────────────────────────────
 
 // Ratings you already made (keyed by IMDb ID). Applied automatically after IMDb
@@ -275,9 +271,24 @@ function loadCache(){try{return JSON.parse(localStorage.getItem(CACHE)||'{}');}c
 function saveCache(c){try{localStorage.setItem(CACHE,JSON.stringify(c));}catch(e){}}
 
 /* ---- cloud persistence (Firestore) ---- */
+function localSettings(){
+  return {
+    group:localStorage.getItem('reel.group.v1')||'',
+    name:localStorage.getItem('reel.displayname.v1')||'',
+    prompt:localStorage.getItem('reel.prompt.v1')||'',
+    autoimport:localStorage.getItem('reel.autoimport.v1')||'0'
+  };
+}
+function applySettings(s){
+  if(!s)return;
+  if(s.group!=null)localStorage.setItem('reel.group.v1',s.group);
+  if(s.name)localStorage.setItem('reel.displayname.v1',s.name);
+  if(s.prompt)localStorage.setItem('reel.prompt.v1',s.prompt);
+  if(s.autoimport!=null)localStorage.setItem('reel.autoimport.v1',s.autoimport);
+}
 async function saveCloud(){
   if(!user||!db)return;
-  try{await db.collection('users').doc(user.uid).set({state:snapshot(),omdb:loadCache(),library:LIB,updated:Date.now()},{merge:true});}
+  try{await db.collection('users').doc(user.uid).set({state:snapshot(),omdb:loadCache(),library:LIB,settings:localSettings(),updated:Date.now()},{merge:true});}
   catch(e){console.warn('cloud save failed',e);}
 }
 function watchCloud(){
@@ -287,6 +298,14 @@ function watchCloud(){
     const d=doc.data();if(!d)return;
     if(d.omdb){saveCache(d.omdb);applyCacheToState(d.omdb);}
     if(d.library){LIB=d.library;saveLib();}
+    if(d.settings){
+      const prevGroup=GROUP;
+      applySettings(d.settings);
+      GROUP=localStorage.getItem('reel.group.v1')||'';
+      markGroup();
+      const cb=$('autoImport');if(cb)cb.checked=localStorage.getItem('reel.autoimport.v1')==='1';
+      if(GROUP&&GROUP!==prevGroup)watchShared(); // group arrived/changed from another device
+    }
     if(d.state){applySnapshot(d.state);saveLocal();render();}
   });
 }
@@ -356,7 +375,7 @@ function cardHTML(v){
 }
 function render(){
   if(fStatus==='shared'){renderShared();return;}
-  $('sharebar').classList.add('hidden');
+  $('sharebar').classList.add('hidden');$('sharebar').style.display='';
   grid.innerHTML=visible().map(cardHTML).join('')||'<p style="color:var(--muted)">Nothing matches these filters.</p>';counts();
 }
 function counts(){let w=0,d=0,r=0,q=0;st.forEach(v=>{if(v.status==='watch')w++;if(v.status==='watched')d++;if(v.score)r++;if(!v.status)q++;});$('cW').textContent=w;$('cD').textContent=d;$('cR').textContent=r;const qe=$('cQ');if(qe)qe.textContent=q;}
@@ -441,12 +460,16 @@ function initFirebase(){
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
-    firebase.auth().onAuthStateChanged(u=>{
-      // Allowlist gate
+    firebase.auth().onAuthStateChanged(async u=>{
       if(u){
+        // Load the allowlist from Firestore (kept out of the public file)
+        try{
+          const cfg=await db.collection('config').doc('access').get();
+          ACCESS=cfg.exists?cfg.data():{emails:[],owner:''};
+        }catch(e){ACCESS={emails:[],owner:''};}
         const email=(u.email||'').toLowerCase();
-        const ok=ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email);
-        if(!ok){
+        const list=(ACCESS.emails||[]).map(e=>String(e).toLowerCase());
+        if(!list.includes(email)){
           $('gateMsg').innerHTML='<span class="err">'+email+' isn\u2019t on the approved list. Ask the owner to add you.</span>';
           firebase.auth().signOut();
           showGate();user=null;return;
@@ -456,12 +479,20 @@ function initFirebase(){
       if(u){
         openApp(u);
         setSync(true,'synced · '+(u.displayName||u.email||'signed in'));$('signinBtn').textContent='Sign out';
-        // per-user OMDb key: prefill owner's only for owner; others use their saved key
+        // per-user OMDb key: owner key (from Firestore config) prefills only for owner; others use their saved key
         const savedKey=localStorage.getItem('reel.omdbkey.v1')||'';
-        if((u.email||'').toLowerCase()===OWNER_EMAIL.toLowerCase()&&!savedKey){$('key').value=OWNER_OMDB_KEY;}
+        const isOwner=(u.email||'').toLowerCase()===String(ACCESS.owner||'').toLowerCase();
+        if(isOwner&&!savedKey&&ACCESS.ownerKey){$('key').value=ACCESS.ownerKey;}
         else{$('key').value=savedKey;}
         db.collection('users').doc(u.uid).get().then(doc=>{
           const d=doc.data();
+          if(d&&d.settings){
+            applySettings(d.settings);
+            GROUP=localStorage.getItem('reel.group.v1')||'';markGroup();
+            const cb=$('autoImport');if(cb)cb.checked=localStorage.getItem('reel.autoimport.v1')==='1';
+          }
+          if(d&&d.omdb){saveCache(d.omdb);applyCacheToState(d.omdb);}
+          if(d&&d.library){LIB=d.library;saveLib();}
           if(d&&d.state&&Object.keys(d.state).length){applySnapshot(d.state);saveLocal();render();}
           else{saveCloud();}
           watchCloud();
@@ -823,7 +854,7 @@ async function unshare(id){
 }
 
 function renderShared(){
-  $('sharebar').classList.remove('hidden');
+  const sb=$('sharebar');sb.classList.remove('hidden');sb.style.display='flex';
   if(!GROUP){grid.innerHTML='<p style="color:var(--muted)">Join a group first (top-right “Group” button) to share and see recommendations.</p>';return;}
   if(!sharedItems.length){grid.innerHTML='<p style="color:var(--muted)">No shared recommendations yet. Search a title above to share one.</p>';return;}
   grid.innerHTML=sharedItems.map(s=>{
@@ -908,8 +939,9 @@ function openGroup(){
     if(!code){$('gMsg').innerHTML='<span class="err">Enter a code.</span>';return;}
     GROUP=code;localStorage.setItem(GROUPKEY,code);watchShared();
     $('gMsg').innerHTML='<span class="ok">Joined “'+code+'”. Open the Shared tab.</span>';markGroup();
+    if(user)saveCloud(); // sync group + name to your other devices
   };
-  const lv=$('gLeave');if(lv)lv.onclick=()=>{GROUP='';localStorage.removeItem(GROUPKEY);if(sharedUnsub){sharedUnsub();sharedUnsub=null;}sharedItems=[];markGroup();closeDlg();render();};
+  const lv=$('gLeave');if(lv)lv.onclick=()=>{GROUP='';localStorage.removeItem(GROUPKEY);if(sharedUnsub){sharedUnsub();sharedUnsub=null;}sharedItems=[];markGroup();if(user)saveCloud();closeDlg();render();};
 }
 function markGroup(){const b=$('groupBtn');if(b)b.textContent=GROUP?('Group · '+GROUP):'Group';}
 $('groupBtn').addEventListener('click',openGroup);
@@ -939,7 +971,7 @@ function openPromptEditor(){
     <textarea id="promptTA" style="width:100%;min-height:240px;background:#0a0d10;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:12px;font:inherit;font-size:13px;line-height:1.5">${getPrompt().replace(/</g,'&lt;')}</textarea>
     <div class="row"><button class="btn" id="pSave">Save</button><button class="btn ghost" id="pReset">Reset to default</button></div>
     <p class="note" id="pMsg"></p>`);
-  $('pSave').onclick=()=>{localStorage.setItem(PROMPTKEY,$('promptTA').value);$('pMsg').innerHTML='<span class="ok">Saved.</span>';};
+  $('pSave').onclick=()=>{localStorage.setItem(PROMPTKEY,$('promptTA').value);if(user)saveCloud();$('pMsg').innerHTML='<span class="ok">Saved &amp; synced.</span>';};
   $('pReset').onclick=()=>{$('promptTA').value=defaultPrompt();localStorage.removeItem(PROMPTKEY);$('pMsg').innerHTML='<span class="ok">Reset.</span>';};
 }
 $('promptBtn').addEventListener('click',openPromptEditor);

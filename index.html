@@ -815,7 +815,14 @@ async function doShareSearch(){
   try{
     const r=await fetch('https://www.omdbapi.com/?s='+encodeURIComponent(q)+'&apikey='+encodeURIComponent(key));
     const j=await r.json();
-    if(j.Response==='False'){box.innerHTML='<span class="err" style="font-size:13px">No matches.</span>';return;}
+    if(j.Response==='False'){
+      if(/limit reached/i.test(j.Error||'')){
+        box.innerHTML='<span class="err" style="font-size:13px">OMDb daily limit reached (1,000/day free). Resets midnight US Eastern, or paste a different OMDb key in the top toolbar.</span>';
+      }else{
+        box.innerHTML='<span class="err" style="font-size:13px">No matches'+(j.Error?': '+j.Error:'')+'.</span>';
+      }
+      return;
+    }
     box.innerHTML=j.Search.slice(0,6).map((m,i)=>{
       const poster=m.Poster&&m.Poster!=='N/A'?`<img src="${m.Poster}">`:'<div style="width:40px;height:60px"></div>';
       return `<div class="shareResult">${poster}<div class="info"><b>${m.Title}</b><span>${m.Year} · ${m.Type==='series'?'Series':'Film'}</span></div>

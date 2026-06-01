@@ -118,6 +118,13 @@
   .modal .x{position:absolute;top:14px;right:16px;background:none;color:var(--muted);font-size:20px}
   .big{font-size:30px;font-family:"Fraunces",serif;letter-spacing:.12em;color:var(--teal);text-align:center;margin:10px 0}
   .hidden{display:none!important}
+  .gate{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(1100px 560px at 80% -8%,#16242a 0%,transparent 58%),var(--bg)}
+  .gateCard{max-width:440px;width:100%;background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:18px;padding:36px 32px;text-align:center}
+  .gateCard .kicker{font-size:12px;letter-spacing:.3em;text-transform:uppercase;margin:0}
+  .app-hidden{display:none!important}
+  body.signedin .gate{display:none}
+  body.signedin .savebar{display:flex}
+  .savebar.gated{display:none}
   .note{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
   .err{color:var(--rose)}.ok{color:var(--green)}
   input[type=file]{display:none}
@@ -125,7 +132,16 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div id="gate" class="gate">
+  <div class="gateCard">
+    <p class="kicker" style="color:var(--teal)">Reel</p>
+    <h1 style="font-family:'Fraunces',serif;font-weight:600;font-size:38px;margin:6px 0 12px">Private access</h1>
+    <p style="color:var(--muted);line-height:1.55;margin:0 0 20px">This tracker is invite-only. Sign in with an approved Google account to continue.</p>
+    <button class="btn" id="gateSignin" style="font-size:15px;padding:13px 22px">Sign in with Google</button>
+    <p class="note" id="gateMsg" style="margin-top:14px"></p>
+  </div>
+</div>
+<div class="wrap app-hidden" id="appwrap">
   <header>
     <div class="topline">
       <p class="kicker">Reel · ranked for your taste</p>
@@ -144,7 +160,7 @@
   </header>
 
   <div class="toolbar">
-    <input id="key" type="text" value="c0686bb1" placeholder="OMDb key" style="max-width:130px">
+    <input id="key" type="text" value="" placeholder="OMDb key" style="max-width:130px">
     <button class="btn sm" id="loadBtn">Load IMDb</button>
     <input id="search" type="text" placeholder="Search title…">
     <div class="spacer"></div>
@@ -188,7 +204,7 @@
   <div class="grid" id="grid"></div>
 </div>
 
-<div class="savebar">
+<div class="savebar gated" id="savebar">
   <div class="inner">
     <span class="summary"><b id="cQ">0</b> in queue · <span class="dot2 w"></span><b id="cW">0</b> watchlist · <span class="dot2 d"></span><b id="cD">0</b> watched · <b id="cR">0</b> rated</span>
     <div class="spacer"></div>
@@ -218,6 +234,18 @@ const FIREBASE_CONFIG = {
   appId: "1:178317967227:web:f3650e155d1bdc796347de"
 };
 const TRAKT_CLIENT_ID = "cab14c3161565c963cc283cf1b39b69a99011d07eaacb4cee1d598d342270553"; // Trakt app Client ID (public, safe to embed)
+
+// ── ACCESS CONTROL ───────────────────────────────────────────
+// Only these Google account emails may sign in and use the app.
+// Add your friend's email here too. Lowercase. Edit anytime + re-upload.
+const ALLOWED_EMAILS = [
+  "REPLACE_WITH_YOUR_EMAIL@gmail.com"
+  // ,"friend@gmail.com"
+];
+// Your own email — your OMDb key pre-fills only for you; everyone else starts blank.
+const OWNER_EMAIL = "REPLACE_WITH_YOUR_EMAIL@gmail.com";
+const OWNER_OMDB_KEY = "a86e2251"; // pre-filled only when OWNER_EMAIL signs in
+// ─────────────────────────────────────────────────────────────
 
 // Ratings you already made (keyed by IMDb ID). Applied automatically after IMDb
 // loads, so you never re-rate. Items also get marked as watched.
@@ -414,9 +442,24 @@ function initFirebase(){
     firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
     firebase.auth().onAuthStateChanged(u=>{
+      // Allowlist gate
+      if(u){
+        const email=(u.email||'').toLowerCase();
+        const ok=ALLOWED_EMAILS.map(e=>e.toLowerCase()).includes(email);
+        if(!ok){
+          $('gateMsg').innerHTML='<span class="err">'+email+' isn\u2019t on the approved list. Ask the owner to add you.</span>';
+          firebase.auth().signOut();
+          showGate();user=null;return;
+        }
+      }
       user=u;
-      if(u){setSync(true,'synced · '+(u.displayName||u.email||'signed in'));$('signinBtn').textContent='Sign out';
-        // merge: pull cloud, if empty push local
+      if(u){
+        openApp(u);
+        setSync(true,'synced · '+(u.displayName||u.email||'signed in'));$('signinBtn').textContent='Sign out';
+        // per-user OMDb key: prefill owner's only for owner; others use their saved key
+        const savedKey=localStorage.getItem('reel.omdbkey.v1')||'';
+        if((u.email||'').toLowerCase()===OWNER_EMAIL.toLowerCase()&&!savedKey){$('key').value=OWNER_OMDB_KEY;}
+        else{$('key').value=savedKey;}
         db.collection('users').doc(u.uid).get().then(doc=>{
           const d=doc.data();
           if(d&&d.state&&Object.keys(d.state).length){applySnapshot(d.state);saveLocal();render();}
@@ -424,11 +467,20 @@ function initFirebase(){
           watchCloud();
           if(GROUP)watchShared();
         });
-      }else{setSync(false,'local only');$('signinBtn').textContent='Sign in to sync';}
+      }else{showGate();setSync(false,'signed out');$('signinBtn').textContent='Sign in';}
     });
     return true;
   }catch(e){console.warn(e);return false;}
 }
+function showGate(){document.body.classList.remove('signedin');$('gate').style.display='flex';$('appwrap').classList.add('app-hidden');}
+function openApp(u){document.body.classList.add('signedin');$('gate').style.display='none';$('appwrap').classList.remove('app-hidden');render();setTimeout(()=>{if(typeof afterSignIn==='function')afterSignIn();},50);}
+$('gateSignin').addEventListener('click',()=>{
+  if(!db){$('gateMsg').innerHTML='<span class="err">Firebase not configured.</span>';return;}
+  const p=new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(p).catch(e=>{$('gateMsg').innerHTML='<span class="err">Sign-in failed: '+e.message+'</span>';});
+});
+// persist per-user OMDb key when changed
+document.addEventListener('DOMContentLoaded',()=>{const k=$('key');if(k)k.addEventListener('change',()=>localStorage.setItem('reel.omdbkey.v1',k.value.trim()));});
 function setSync(on,txt){const p=$('syncPill');p.classList.toggle('on',on);$('syncTxt').textContent=txt;}
 $('signinBtn').addEventListener('click',()=>{
   if(!db){openSetup();return;}
@@ -896,18 +948,22 @@ $('promptBtn').addEventListener('click',openPromptEditor);
 loadLocal();
 loadLib();
 try{applyCacheToState(loadCache());}catch(e){}
-render();
 const fbOk=initFirebase();
-if(!fbOk)setSync(false,'local only');
+if(!fbOk){
+  // Firebase not configured — cannot gate safely; show a notice in the gate.
+  $('gateMsg').innerHTML='<span class="err">Firebase not configured.</span>';
+}
+showGate(); // stay gated until auth confirms an approved user
 loadTraktToken();
 initAutoImport();
 markGroup();
-window.addEventListener('load',()=>{
-  if($('key').value.trim()) loadIMDb().then(()=>{
-    if($('autoImport') && $('autoImport').checked && traktToken) silentImport();
-  });
-  else if($('autoImport') && $('autoImport').checked && traktToken){ silentImport(); }
-});
+// After sign-in completes (handled in onAuthStateChanged → openApp), load IMDb once.
+let didInitialLoad=false;
+function afterSignIn(){
+  if(didInitialLoad)return;didInitialLoad=true;
+  if($('key').value.trim()) loadIMDb().then(()=>{ if($('autoImport')&&$('autoImport').checked&&traktToken) silentImport(); });
+  else if($('autoImport')&&$('autoImport').checked&&traktToken){ silentImport(); }
+}
 
 </script>
 </body>

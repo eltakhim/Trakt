@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reel · your watch tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0f12;--panel:#141a1f;--panel2:#1a2229;--ink:#eef3f4;--muted:#8a98a0;
+    --line:#27313a;--teal:#4fd6c4;--teal-dim:#2b6b63;--amber:#f5c518;--rose:#e8775f;
+    --green:#67c98e;--watch:#6aa6e8;--radius:14px;--maxw:1280px;
+  }
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:radial-gradient(1100px 560px at 80% -8%,#16242a 0%,transparent 58%),var(--bg);color:var(--ink);font-family:"Hanken Grotesk",system-ui,sans-serif;min-height:100vh;padding:0 0 160px;-webkit-text-size-adjust:100%}
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.035;z-index:1;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 18px;position:relative;z-index:2}
+  header{padding:40px 0 10px}
+  .topline{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .kicker{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--teal);margin:0 0 10px}
+  h1{font-family:"Fraunces",serif;font-weight:600;font-size:clamp(32px,5vw,56px);line-height:.98;margin:0 0 12px;letter-spacing:-.015em}
+  h1 em{font-style:italic;font-weight:400;color:var(--teal)}
+  .lede{color:var(--muted);max-width:62ch;font-size:15.5px;line-height:1.55;margin:0}
+  button{font:inherit;cursor:pointer;border:none;border-radius:9px}
+  .btn{background:var(--teal);color:#06201d;font-weight:700;padding:10px 16px}
+  .btn:hover{filter:brightness(1.07)}.btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .btn.ghost:hover{border-color:var(--teal-dim)}
+  .btn.sm{padding:8px 12px;font-size:13px}
+  .pill{display:inline-flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:13px;color:var(--muted)}
+  .pill .dot{width:8px;height:8px;border-radius:99px;background:var(--rose)}
+  .pill.on .dot{background:var(--green)}
+
+  .accountbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:22px 0 6px}
+  .seg{display:inline-flex;background:#0a0d10;border:1px solid var(--line);border-radius:99px;padding:3px;flex-wrap:wrap}
+  .seg button{background:transparent;color:var(--muted);padding:7px 13px;border-radius:99px;font-size:13px;font-weight:600}
+  .seg button.on{background:var(--panel2);color:var(--ink)}
+  .seg.small button{padding:6px 10px;font-size:12.5px}
+  .spacer{flex:1}
+  select,input[type=text]{background:#0a0d10;border:1px solid var(--line);color:var(--ink);padding:9px 12px;border-radius:9px;font:inherit;font-size:13px}
+  input#search{min-width:180px}
+  input:focus,select:focus{outline:none;border-color:var(--teal-dim);box-shadow:0 0 0 3px rgba(79,214,196,.12)}
+
+  .genrebar{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0 4px}
+  .genrebar button{background:#0a0d10;border:1px solid var(--line);color:var(--muted);padding:5px 11px;border-radius:99px;font-size:12.5px;font-weight:600}
+  .genrebar button.on{background:var(--teal);color:#06201d;border-color:var(--teal)}
+
+  .status{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:14px 0 2px;color:var(--muted);font-size:13px}
+  .status b{color:var(--ink)}
+  .bar{height:6px;background:#0a0d10;border:1px solid var(--line);border-radius:99px;overflow:hidden;flex:1 1 180px;min-width:120px}
+  .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal-dim),var(--teal));transition:width .25s}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:16px;margin-top:10px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:border-color .18s,transform .18s}
+  .card:hover{border-color:var(--teal-dim);transform:translateY(-2px)}
+  .card.is-watched{border-color:var(--green)}.card.is-watch{border-color:var(--watch)}
+  .top{position:relative;display:flex}
+  .poster{position:relative;width:92px;flex:0 0 92px;aspect-ratio:2/3;background:#0a0d10 center/cover no-repeat}
+  .poster .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#33424c;font-family:"Fraunces",serif;font-size:32px}
+  .rank{position:absolute;top:7px;left:7px;background:rgba(6,12,14,.85);border:1px solid var(--line);color:var(--teal);font-weight:700;font-size:11.5px;padding:2px 6px;border-radius:6px}
+  .head{flex:1;padding:11px 12px 9px;min-width:0}
+  .ttl{font-size:14.5px;font-weight:600;line-height:1.22;margin:0 0 3px}
+  .sub{display:flex;gap:7px;align-items:center;color:var(--muted);font-size:12px;margin-bottom:6px;flex-wrap:wrap}
+  .type{text-transform:uppercase;letter-spacing:.1em;font-size:9.5px}
+  .imdb{display:inline-flex;align-items:center;gap:3px;color:var(--amber);font-weight:700;font-size:12px}
+  .conf{font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:2px 5px;border-radius:5px;border:1px solid var(--line);color:var(--muted)}
+  .conf.S{color:var(--teal);border-color:var(--teal-dim)}.conf.A{color:var(--ink)}
+  .genres{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+  .gtag{font-size:10px;color:var(--muted);background:#0a0d10;border:1px solid var(--line);padding:1px 6px;border-radius:5px}
+  .why{color:var(--muted);font-size:12px;line-height:1.4;margin:0}
+  .actions{padding:9px 12px 11px;margin-top:auto;border-top:1px solid var(--line)}
+  .statusrow{display:flex;gap:6px;margin-bottom:8px}
+  .statusrow button{flex:1;background:#0a0d10;color:var(--muted);border:1px solid transparent;padding:7px 0;font-size:11.5px;font-weight:600;border-radius:8px}
+  .statusrow button:hover{color:var(--ink)}
+  .statusrow button.on-watch{background:var(--watch);color:#04111f}
+  .statusrow button.on-watched{background:var(--green);color:#042713}
+  .myrate .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin:0 2px 6px}
+  .myrate .lbl b{color:var(--teal);font-size:12px}
+  .chips{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
+  .chips button{background:#0a0d10;color:var(--muted);border:1px solid transparent;padding:5px 0;font-size:11px;font-weight:600;border-radius:6px}
+  .chips button:hover{color:var(--ink)}.chips button.sel{background:var(--teal);color:#06201d;font-weight:800}
+
+  .savebar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(10,13,16,.94);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+  .savebar .inner{max-width:var(--maxw);margin:0 auto;padding:12px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .summary{color:var(--muted);font-size:13px}.summary b{color:var(--ink)}
+  .dot2{display:inline-block;width:8px;height:8px;border-radius:99px;margin-right:4px;vertical-align:middle}
+  .dot2.w{background:var(--watch)}.dot2.d{background:var(--green)}
+
+  dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:16px;max-width:620px;width:calc(100% - 36px);padding:0}
+  dialog::backdrop{background:rgba(4,7,9,.7)}
+  .modal{padding:22px 24px}
+  .modal h2{font-family:"Fraunces",serif;font-weight:600;font-size:24px;margin:0 0 6px}
+  .modal h3{font-size:14px;margin:18px 0 6px;color:var(--teal)}
+  .modal p{color:var(--muted);font-size:13.5px;line-height:1.55;margin:0 0 10px}
+  .modal code,pre{background:#0a0d10;border:1px solid var(--line);border-radius:8px}
+  .modal code{padding:2px 6px;font-size:12.5px}
+  pre{padding:12px;overflow:auto;font-size:12px;line-height:1.5;max-height:220px;white-space:pre-wrap}
+  .modal .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .modal .x{position:absolute;top:14px;right:16px;background:none;color:var(--muted);font-size:20px}
+  .big{font-size:30px;font-family:"Fraunces",serif;letter-spacing:.12em;color:var(--teal);text-align:center;margin:10px 0}
+  .hidden{display:none!important}
+  .note{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
+  .err{color:var(--rose)}.ok{color:var(--green)}
+  input[type=file]{display:none}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}h1{font-size:34px}.wrap{padding:0 14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="topline">
+      <p class="kicker">Reel · ranked for your taste</p>
+      <div class="accountbar" id="accountbar">
+        <span class="pill" id="syncPill"><span class="dot"></span><span id="syncTxt">local only</span></span>
+        <button class="btn ghost sm" id="signinBtn">Sign in to sync</button>
+        <button class="btn ghost sm" id="traktBtn">Connect Trakt</button>
+        <button class="btn ghost sm" id="helpBtn">Setup</button>
+      </div>
+    </div>
+    <h1>What to watch <em>next</em>.</h1>
+    <p class="lede">100 picks chosen against your ratings, ordered most-likely-to-love first. Mark watched, build a watchlist, score them — synced across your devices, exportable to an AI for fresh lists, and pushable straight to Trakt.</p>
+  </header>
+
+  <div class="toolbar">
+    <input id="key" type="text" value="c0686bb1" placeholder="OMDb key" style="max-width:130px">
+    <button class="btn sm" id="loadBtn">Load IMDb</button>
+    <input id="search" type="text" placeholder="Search title…">
+    <div class="spacer"></div>
+    <select id="sort">
+      <option value="rank">Sort: ranking</option>
+      <option value="imdb">Sort: IMDb</option>
+      <option value="mine">Sort: my rating</option>
+      <option value="year">Sort: year</option>
+    </select>
+  </div>
+  <div class="toolbar" style="margin-top:0">
+    <div class="seg" id="fStatus">
+      <button data-f="all" class="on">All</button>
+      <button data-f="watch">Watchlist</button>
+      <button data-f="watched">Watched</button>
+      <button data-f="rated">Rated</button>
+      <button data-f="unmarked">New</button>
+    </div>
+    <div class="seg small" id="fType">
+      <button data-t="all" class="on">Both</button>
+      <button data-t="movie">Films</button>
+      <button data-t="show">Shows</button>
+    </div>
+  </div>
+  <div class="genrebar" id="genrebar"></div>
+
+  <div class="status hidden" id="statusbar">
+    <span><b id="done">0</b>/<span id="total">0</span> IMDb loaded</span>
+    <div class="bar"><i id="prog"></i></div>
+    <span id="fails"></span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="savebar">
+  <div class="inner">
+    <span class="summary"><span class="dot2 w"></span><b id="cW">0</b> watchlist · <span class="dot2 d"></span><b id="cD">0</b> watched · <b id="cR">0</b> rated</span>
+    <div class="spacer"></div>
+    <button class="btn ghost sm" id="aiBtn">Export for AI</button>
+    <button class="btn ghost sm" id="importBtn">Import AI list</button>
+    <button class="btn sm" id="traktExportBtn">Push to Trakt</button>
+  </div>
+</div>
+<input type="file" id="fileInput" accept="application/json,.json">
+
+<!-- dialogs injected by script -->
+<dialog id="dlg"><button class="x" id="dlgX">×</button><div class="modal" id="dlgBody"></div></dialog>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ============================================================
+   CONFIG — fill these in once (see Setup dialog for how)
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  // paste your Firebase web config object here, e.g.
+  // apiKey:"...", authDomain:"...", projectId:"...", appId:"..."
+};
+const TRAKT_CLIENT_ID = ""; // your Trakt app Client ID (public, safe to embed)
+// Token exchange runs through your Firebase Function (needs the secret).
+// Set this to your deployed function URL, e.g. https://us-central1-PROJECT.cloudfunctions.net/traktToken
+const TRAKT_TOKEN_FN = "";
+
+const RECS=[{"r":1,"t":"Arrival","y":2016,"k":"movie","g":["Sci-Fi","Drama","Mystery"],"w":"Emotional high-concept sci-fi (Villeneuve) \u2014 ideas wrapped in feeling, your sweet spot","c":"S"},{"r":2,"t":"Shogun","y":2024,"k":"show","g":["Historical","Drama","Epic"],"w":"Epic prestige historical drama \u2014 Gladiator/LOTR scale in series form","c":"S"},{"r":3,"t":"Andhadhun","y":2018,"k":"movie","g":["Thriller","Indian","Crime"],"w":"Indian cinema + razor-tight twist thriller \u2014 two pillars in one","c":"S"},{"r":4,"t":"Dune","y":2021,"k":"movie","g":["Sci-Fi","Epic","Adventure"],"w":"Epic grounded sci-fi spectacle, scale and momentum","c":"S"},{"r":5,"t":"Dune: Part Two","y":2024,"k":"movie","g":["Sci-Fi","Epic","Adventure"],"w":"The payoff to Part One \u2014 bigger, more propulsive","c":"S"},{"r":6,"t":"Zodiac","y":2007,"k":"movie","g":["Thriller","Crime","Mystery"],"w":"Fincher procedural \u2014 you rate Fincher at the very top","c":"S"},{"r":7,"t":"Chernobyl","y":2019,"k":"show","g":["Drama","Thriller","Historical"],"w":"Tense, tightly constructed prestige miniseries","c":"S"},{"r":8,"t":"Drishyam","y":2015,"k":"movie","g":["Thriller","Indian","Crime"],"w":"Indian cat-and-mouse thriller, ingeniously constructed","c":"S"},{"r":9,"t":"Knives Out","y":2019,"k":"movie","g":["Mystery","Comedy","Crime"],"w":"Immaculately constructed whodunit, pure payoff","c":"S"},{"r":10,"t":"Sicario","y":2015,"k":"movie","g":["Thriller","Crime","Action"],"w":"Villeneuve tension thriller, relentless momentum","c":"S"},{"r":11,"t":"Better Call Saul","y":2015,"k":"show","g":["Drama","Crime"],"w":"Masterfully constructed character drama, Breaking Bad pedigree","c":"S"},{"r":12,"t":"Nightcrawler","y":2014,"k":"movie","g":["Thriller","Crime","Drama"],"w":"Dark, tightly built character thriller","c":"S"},{"r":13,"t":"Game of Thrones","y":2011,"k":"show","g":["Fantasy","Epic","Drama"],"w":"The saga behind House of the Dragon \u2014 epic political stakes","c":"S"},{"r":14,"t":"Memories of Murder","y":2003,"k":"movie","g":["Thriller","Crime","Mystery"],"w":"Bong Joon-ho true-crime procedural \u2014 masterclass tension","c":"S"},{"r":15,"t":"Snowpiercer","y":2013,"k":"movie","g":["Sci-Fi","Action","Thriller"],"w":"Bong Joon-ho high-concept (the Parasite director)","c":"S"},{"r":16,"t":"Lagaan","y":2001,"k":"movie","g":["Indian","Drama","Sport"],"w":"Aamir Khan epic \u2014 sport + drama, Dangal energy at scale","c":"S"},{"r":17,"t":"12th Fail","y":2023,"k":"movie","g":["Indian","Drama"],"w":"Recent uplifting Indian true story, beautifully grounded","c":"S"},{"r":18,"t":"Mindhunter","y":2017,"k":"show","g":["Thriller","Crime","Drama"],"w":"Fincher serial-killer procedural","c":"S"},{"r":19,"t":"Arcane","y":2021,"k":"show","g":["Animation","Action","Drama"],"w":"Animated, arc-driven, Spider-Verse-level craft (not anime)","c":"S"},{"r":20,"t":"The Last of Us","y":2023,"k":"show","g":["Drama","Sci-Fi","Action"],"w":"Grounded, emotional survival arc","c":"S"},{"r":21,"t":"Vikram Vedha","y":2017,"k":"movie","g":["Thriller","Indian","Action"],"w":"Indian moral-grey thriller","c":"A"},{"r":22,"t":"Predestination","y":2014,"k":"movie","g":["Sci-Fi","Thriller","Mystery"],"w":"Grounded time-twist thriller","c":"A"},{"r":23,"t":"Looper","y":2012,"k":"movie","g":["Sci-Fi","Action","Thriller"],"w":"Grounded sci-fi with a strong hook","c":"A"},{"r":24,"t":"Source Code","y":2011,"k":"movie","g":["Sci-Fi","Thriller","Mystery"],"w":"Concept thriller with emotional core","c":"A"},{"r":25,"t":"District 9","y":2009,"k":"movie","g":["Sci-Fi","Action","Drama"],"w":"Grounded, kinetic sci-fi","c":"A"},{"r":26,"t":"Children of Men","y":2006,"k":"movie","g":["Sci-Fi","Drama","Thriller"],"w":"Grounded dystopia, breathless momentum","c":"A"},{"r":27,"t":"True Detective","y":2014,"k":"show","g":["Crime","Drama","Mystery"],"w":"S1 \u2014 mystery thriller with atmosphere","c":"A"},{"r":28,"t":"Band of Brothers","y":2001,"k":"show","g":["War","Drama","Historical"],"w":"War prestige, Saving Private Ryan in series form","c":"A"},{"r":29,"t":"Peaky Blinders","y":2013,"k":"show","g":["Crime","Drama","Historical"],"w":"Propulsive crime epic","c":"A"},{"r":30,"t":"The Pursuit of Happyness","y":2006,"k":"movie","g":["Drama"],"w":"Uplifting humanist drama","c":"A"},{"r":31,"t":"Dead Poets Society","y":1989,"k":"movie","g":["Drama"],"w":"Emotional, humanist, inspiring","c":"A"},{"r":32,"t":"Once Upon a Time in America","y":1984,"k":"movie","g":["Crime","Drama","Epic"],"w":"Leone epic crime saga (you rated his Good/Bad/Ugly a 9)","c":"A"},{"r":33,"t":"Casino","y":1995,"k":"movie","g":["Crime","Drama"],"w":"Scorsese epic, GoodFellas companion","c":"A"},{"r":34,"t":"The Game","y":1997,"k":"movie","g":["Thriller","Mystery","Drama"],"w":"Fincher mind-bender","c":"A"},{"r":35,"t":"Primal Fear","y":1996,"k":"movie","g":["Thriller","Crime","Drama"],"w":"Courtroom twist thriller","c":"A"},{"r":36,"t":"Gone Baby Gone","y":2007,"k":"movie","g":["Crime","Mystery","Drama"],"w":"Moral mystery, constructed payoff","c":"A"},{"r":37,"t":"Mystic River","y":2003,"k":"movie","g":["Crime","Drama","Mystery"],"w":"Prestige mystery drama","c":"A"},{"r":38,"t":"The Girl with the Dragon Tattoo","y":2011,"k":"movie","g":["Thriller","Crime","Mystery"],"w":"Fincher investigative thriller","c":"A"},{"r":39,"t":"Identity","y":2003,"k":"movie","g":["Thriller","Mystery","Horror"],"w":"Tight ensemble twist thriller","c":"A"},{"r":40,"t":"Cinema Paradiso","y":1988,"k":"movie","g":["Drama","Romance"],"w":"Deeply emotional humanist classic","c":"A"},{"r":41,"t":"Green Book","y":2018,"k":"movie","g":["Drama","Comedy"],"w":"Uplifting road-trip drama","c":"A"},{"r":42,"t":"The Last Samurai","y":2003,"k":"movie","g":["Action","Drama","Historical"],"w":"Epic historical drama","c":"A"},{"r":43,"t":"Master and Commander","y":2003,"k":"movie","g":["Adventure","Action","Historical"],"w":"Epic seafaring adventure","c":"A"},{"r":44,"t":"Dunkirk","y":2017,"k":"movie","g":["War","Thriller","Action"],"w":"Nolan war film, pure tension","c":"A"},{"r":45,"t":"Dances with Wolves","y":1990,"k":"movie","g":["Drama","Adventure","Western"],"w":"Epic, immersive","c":"A"},{"r":46,"t":"Special 26","y":2013,"k":"movie","g":["Indian","Thriller","Crime"],"w":"Indian heist thriller","c":"A"},{"r":47,"t":"A Wednesday","y":2008,"k":"movie","g":["Indian","Thriller","Drama"],"w":"Taut Indian thriller","c":"A"},{"r":48,"t":"Article 15","y":2019,"k":"movie","g":["Indian","Thriller","Crime"],"w":"Indian investigative procedural","c":"A"},{"r":49,"t":"Talvar","y":2015,"k":"movie","g":["Indian","Crime","Drama"],"w":"Indian true-crime drama","c":"A"},{"r":50,"t":"Secret Superstar","y":2017,"k":"movie","g":["Indian","Drama","Music"],"w":"Aamir Khan uplifting drama","c":"A"},{"r":51,"t":"PK","y":2014,"k":"movie","g":["Indian","Comedy","Drama"],"w":"Aamir Khan humanist crowd-pleaser","c":"A"},{"r":52,"t":"Squid Game","y":2021,"k":"show","g":["Thriller","Drama","Action"],"w":"High-stakes survival, propulsive","c":"A"},{"r":53,"t":"Money Heist","y":2017,"k":"show","g":["Crime","Thriller","Action"],"w":"Heist thriller, constant momentum","c":"A"},{"r":54,"t":"Andor","y":2022,"k":"show","g":["Sci-Fi","Drama","Action"],"w":"Prestige Star Wars, grounded and tense","c":"A"},{"r":55,"t":"Daredevil","y":2015,"k":"show","g":["Action","Crime","Drama"],"w":"Grounded superhero arc","c":"A"},{"r":56,"t":"Westworld","y":2016,"k":"show","g":["Sci-Fi","Drama","Mystery"],"w":"S1 \u2014 sci-fi puzzle-box","c":"A"},{"r":57,"t":"Narcos","y":2015,"k":"show","g":["Crime","Drama","Historical"],"w":"Crime saga","c":"A"},{"r":58,"t":"Ozark","y":2017,"k":"show","g":["Crime","Drama","Thriller"],"w":"Crime tension, slow-burn","c":"A"},{"r":59,"t":"Sherlock","y":2010,"k":"show","g":["Mystery","Crime","Drama"],"w":"Modern mystery, twist-driven","c":"A"},{"r":60,"t":"Blue Eye Samurai","y":2023,"k":"show","g":["Animation","Action","Drama"],"w":"Animated revenge epic, mature (Western animation)","c":"A"},{"r":61,"t":"Enemy","y":2013,"k":"movie","g":["Thriller","Mystery","Drama"],"w":"Villeneuve psychological puzzle (cerebral but tight)","c":"B"},{"r":62,"t":"Coherence","y":2013,"k":"movie","g":["Sci-Fi","Thriller","Mystery"],"w":"Low-budget reality-bending twist","c":"B"},{"r":63,"t":"Triangle","y":2009,"k":"movie","g":["Thriller","Mystery","Horror"],"w":"Time-loop thriller","c":"B"},{"r":64,"t":"Million Dollar Baby","y":2004,"k":"movie","g":["Drama","Sport"],"w":"Emotional drama (heavy ending)","c":"B"},{"r":65,"t":"Warrior (TV)","y":2019,"k":"show","g":["Action","Crime","Drama"],"w":"Martial-arts crime drama, propulsive","c":"B"},{"r":66,"t":"1899","y":2022,"k":"show","g":["Mystery","Sci-Fi","Drama"],"w":"From the Dark creators, mystery box","c":"B"},{"r":67,"t":"Dexter","y":2006,"k":"show","g":["Crime","Thriller","Drama"],"w":"Serial-killer character study","c":"B"},{"r":68,"t":"The Bridge","y":2011,"k":"show","g":["Crime","Thriller","Mystery"],"w":"Scandinavian procedural, twisty","c":"B"},{"r":69,"t":"Lawrence of Arabia","y":1962,"k":"movie","g":["Epic","Adventure","Historical"],"w":"Monumental epic (long, classical pacing)","c":"B"},{"r":70,"t":"Apocalypse Now","y":1979,"k":"movie","g":["War","Drama"],"w":"War epic (intense, surreal)","c":"B"},{"r":71,"t":"Full Metal Jacket","y":1987,"k":"movie","g":["War","Drama"],"w":"War film, two-act structure","c":"B"},{"r":72,"t":"Platoon","y":1986,"k":"movie","g":["War","Drama"],"w":"Ground-level war drama","c":"B"},{"r":73,"t":"Tenet","y":2020,"k":"movie","g":["Sci-Fi","Action","Thriller"],"w":"Nolan time-inversion (divisive, colder)","c":"B"},{"r":74,"t":"The Hunt","y":2012,"k":"movie","g":["Drama","Thriller"],"w":"Devastating false-accusation drama","c":"B"},{"r":75,"t":"Incendies","y":2010,"k":"movie","g":["Drama","Mystery","War"],"w":"Villeneuve \u2014 wrenching mystery across timelines","c":"B"},{"r":76,"t":"Hell or High Water","y":2016,"k":"movie","g":["Crime","Drama","Western"],"w":"Lean modern-western heist drama","c":"B"},{"r":77,"t":"Wind River","y":2017,"k":"movie","g":["Crime","Thriller","Mystery"],"w":"Snowbound murder mystery, tense","c":"B"},{"r":78,"t":"The Secret in Their Eyes","y":2009,"k":"movie","g":["Crime","Mystery","Drama"],"w":"Argentine Oscar-winner, twist-driven","c":"A"},{"r":79,"t":"A Separation","y":2011,"k":"movie","g":["Drama"],"w":"Iranian moral drama, gripping","c":"B"},{"r":80,"t":"Rush","y":2013,"k":"movie","g":["Sport","Drama","Action"],"w":"F1 rivalry, propulsive and emotional","c":"A"},{"r":81,"t":"Ford v Ferrari","y":2019,"k":"movie","g":["Sport","Drama","Action"],"w":"Racing drama, crowd-pleasing momentum","c":"A"},{"r":82,"t":"Moneyball","y":2011,"k":"movie","g":["Sport","Drama"],"w":"Smart, emotional underdog story","c":"A"},{"r":83,"t":"The Lives of Others","y":2006,"k":"movie","g":["Drama","Thriller","Historical"],"w":"Stasi-era moral thriller, masterful","c":"A"},{"r":84,"t":"Spotlight","y":2015,"k":"movie","g":["Drama","Crime"],"w":"Investigative journalism procedural","c":"A"},{"r":85,"t":"Dark Waters","y":2019,"k":"movie","g":["Drama","Thriller"],"w":"Legal-investigation thriller","c":"B"},{"r":86,"t":"The Insider","y":1999,"k":"movie","g":["Drama","Thriller"],"w":"Whistleblower tension, Mann-directed","c":"B"},{"r":87,"t":"Collateral","y":2004,"k":"movie","g":["Thriller","Crime","Action"],"w":"Michael Mann night-thriller, taut","c":"A"},{"r":88,"t":"Drive","y":2011,"k":"movie","g":["Crime","Thriller","Drama"],"w":"Stylish, propulsive neo-noir","c":"A"},{"r":89,"t":"Baby Driver","y":2017,"k":"movie","g":["Action","Crime","Music"],"w":"Kinetic heist ride","c":"A"},{"r":90,"t":"Logan Lucky","y":2017,"k":"movie","g":["Crime","Comedy"],"w":"Soderbergh heist, fun and tight","c":"B"},{"r":91,"t":"Severance S2","y":2025,"k":"show","g":["Sci-Fi","Drama","Mystery"],"w":"More of the puzzle-box you rated well","c":"A"},{"r":92,"t":"Slow Horses","y":2022,"k":"show","g":["Thriller","Drama","Comedy"],"w":"Sharp spy series, bingeable","c":"A"},{"r":93,"t":"The Night Of","y":2016,"k":"show","g":["Crime","Drama","Mystery"],"w":"Murder-trial miniseries, gripping","c":"A"},{"r":94,"t":"Bridge of Spies","y":2015,"k":"movie","g":["Drama","Thriller","Historical"],"w":"Spielberg cold-war thriller, measured tension","c":"A"},{"r":95,"t":"Munich","y":2005,"k":"movie","g":["Thriller","Drama","Historical"],"w":"Spielberg tension piece, moral weight","c":"B"},{"r":96,"t":"Sing Street","y":2016,"k":"movie","g":["Music","Drama","Comedy"],"w":"Warm, uplifting coming-of-age","c":"A"},{"r":97,"t":"The Handmaiden","y":2016,"k":"movie","g":["Thriller","Drama","Romance"],"w":"Park Chan-wook \u2014 gorgeous, twisty","c":"A"},{"r":98,"t":"Decision to Leave","y":2022,"k":"movie","g":["Mystery","Romance","Crime"],"w":"Park Chan-wook detective romance, elegant","c":"A"},{"r":99,"t":"Burning","y":2018,"k":"movie","g":["Mystery","Drama","Thriller"],"w":"Slow-burn Korean enigma","c":"B"},{"r":100,"t":"The Wages of Fear","y":1977,"k":"movie","g":["Thriller","Adventure"],"w":"placeholder","c":"C"}];
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const KID = r => r.t + '|' + r.y;
+const st = new Map();
+RECS.forEach(r => st.set(KID(r), {rec:r, imdbID:null, imdbRating:null, poster:null, status:'', score:null}));
+
+const LS='reel.state.v1', CACHE='reel.omdb.v1';
+let user=null, db=null, traktToken=null, syncing=false;
+
+/* ---- local persistence ---- */
+function snapshot(){const o={};st.forEach((v,k)=>{if(v.status||v.score)o[k]={status:v.status,score:v.score};});return o;}
+function applySnapshot(o){if(!o)return;st.forEach(v=>{v.status='';v.score=null;});for(const k in o){if(st.has(k)){st.get(k).status=o[k].status||'';st.get(k).score=o[k].score??null;}}}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(snapshot()));}catch(e){}}
+function loadLocal(){try{applySnapshot(JSON.parse(localStorage.getItem(LS)||'{}'));}catch(e){}}
+function loadCache(){try{return JSON.parse(localStorage.getItem(CACHE)||'{}');}catch(e){return {};}}
+function saveCache(c){try{localStorage.setItem(CACHE,JSON.stringify(c));}catch(e){}}
+
+/* ---- cloud persistence (Firestore) ---- */
+async function saveCloud(){
+  if(!user||!db)return;
+  try{await db.collection('users').doc(user.uid).set({state:snapshot(),updated:Date.now()},{merge:true});}
+  catch(e){console.warn('cloud save failed',e);}
+}
+function watchCloud(){
+  if(!user||!db)return;
+  db.collection('users').doc(user.uid).onSnapshot(doc=>{
+    if(syncing)return;
+    const d=doc.data();
+    if(d&&d.state){applySnapshot(d.state);saveLocal();render();}
+  });
+}
+let saveTimer=null;
+function persist(){ saveLocal(); clearTimeout(saveTimer); saveTimer=setTimeout(()=>{syncing=true;saveCloud().finally(()=>syncing=false);},600); }
+
+/* ============================================================
+   DOM
+   ============================================================ */
+const $=id=>document.getElementById(id);
+const grid=$('grid');
+let fStatus='all',fType='all',sortBy='rank',search='',fGenre=null;
+
+const ALL_GENRES=[...new Set(RECS.flatMap(r=>r.g))].sort();
+function buildGenreBar(){
+  $('genrebar').innerHTML='<button data-g="" class="on">All genres</button>'+
+    ALL_GENRES.map(g=>`<button data-g="${g}">${g}</button>`).join('');
+}
+$('genrebar').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  [...e.currentTarget.children].forEach(c=>c.classList.remove('on'));b.classList.add('on');
+  fGenre=b.dataset.g||null;render();
+});
+
+function visible(){
+  let arr=[...st.values()].filter(v=>{
+    if(fType!=='all'&&v.rec.k!==fType)return false;
+    if(fStatus==='watch'&&v.status!=='watch')return false;
+    if(fStatus==='watched'&&v.status!=='watched')return false;
+    if(fStatus==='rated'&&!v.score)return false;
+    if(fStatus==='unmarked'&&(v.status||v.score))return false;
+    if(fGenre&&!v.rec.g.includes(fGenre))return false;
+    if(search&&!v.rec.t.toLowerCase().includes(search))return false;
+    return true;
+  });
+  if(sortBy==='rank')arr.sort((a,b)=>a.rec.r-b.rec.r);
+  else if(sortBy==='imdb')arr.sort((a,b)=>(parseFloat(b.imdbRating)||0)-(parseFloat(a.imdbRating)||0));
+  else if(sortBy==='mine')arr.sort((a,b)=>(b.score||0)-(a.score||0)||a.rec.r-b.rec.r);
+  else if(sortBy==='year')arr.sort((a,b)=>b.rec.y-a.rec.y);
+  return arr;
+}
+function cardHTML(v){
+  const r=v.rec,id=KID(r);
+  const ps=v.poster?`style="background-image:url('${v.poster}')"`:'';
+  const ph=v.poster?'':`<div class="ph">${r.t[0]}</div>`;
+  const imdb=v.imdbRating?`<span class="imdb">★ ${v.imdbRating}</span>`:`<span class="imdb" style="color:var(--muted)">★ —</span>`;
+  const conf=r.c==='S'?'top pick':r.c==='A'?'strong':'worth it';
+  const gtags=r.g.slice(0,3).map(g=>`<span class="gtag">${g}</span>`).join('');
+  const chips=Array.from({length:10},(_,n)=>{const val=n+1;return `<button data-act="score" data-id="${id}" data-v="${val}" class="${v.score===val?'sel':''}">${val}</button>`;}).join('');
+  const cls=v.status==='watched'?'is-watched':(v.status==='watch'?'is-watch':'');
+  return `<div class="card ${cls}" data-id="${id}">
+    <div class="top"><div class="poster" ${ps}>${ph}<span class="rank">#${r.r}</span></div>
+      <div class="head"><p class="ttl">${r.t}</p>
+        <div class="sub"><span class="type">${r.k==='movie'?'Film':'Series'}</span><span>${r.y}</span>${imdb}<span class="conf ${r.c}">${conf}</span></div>
+        <div class="genres">${gtags}</div><p class="why">${r.w}</p></div></div>
+    <div class="actions">
+      <div class="statusrow">
+        <button data-act="watch" data-id="${id}" class="${v.status==='watch'?'on-watch':''}">＋ Watchlist</button>
+        <button data-act="watched" data-id="${id}" class="${v.status==='watched'?'on-watched':''}">✓ Watched</button></div>
+      <div class="myrate"><div class="lbl"><span>my rating</span><b>${v.score?v.score+'/10':'—'}</b></div>
+        <div class="chips">${chips}</div></div></div></div>`;
+}
+function render(){grid.innerHTML=visible().map(cardHTML).join('')||'<p style="color:var(--muted)">Nothing matches these filters.</p>';counts();}
+function counts(){let w=0,d=0,r=0;st.forEach(v=>{if(v.status==='watch')w++;if(v.status==='watched')d++;if(v.score)r++;});$('cW').textContent=w;$('cD').textContent=d;$('cR').textContent=r;}
+
+grid.addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const v=st.get(b.dataset.id),act=b.dataset.act;if(!v)return;
+  if(act==='score')v.score=parseInt(b.dataset.v,10);
+  else if(act==='watch')v.status=v.status==='watch'?'':'watch';
+  else if(act==='watched')v.status=v.status==='watched'?'':'watched';
+  persist();
+  const card=b.closest('.card');const t=document.createElement('div');t.innerHTML=cardHTML(v);card.replaceWith(t.firstElementChild);counts();
+});
+$('fStatus').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;[...e.currentTarget.children].forEach(c=>c.classList.remove('on'));b.classList.add('on');fStatus=b.dataset.f;render();});
+$('fType').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;[...e.currentTarget.children].forEach(c=>c.classList.remove('on'));b.classList.add('on');fType=b.dataset.t;render();});
+$('sort').addEventListener('change',e=>{sortBy=e.target.value;render();});
+$('search').addEventListener('input',e=>{search=e.target.value.trim().toLowerCase();render();});
+
+/* ============================================================
+   OMDb loading (poster + imdbRating + imdbID, cached)
+   ============================================================ */
+async function omdb(params,key){const r=await fetch('https://www.omdbapi.com/?'+params+'&apikey='+encodeURIComponent(key));return r.json();}
+async function resolve(v,key,cache){
+  const id=KID(v.rec);
+  if(cache[id]){Object.assign(v,cache[id]);return !!cache[id].imdbID;}
+  const t=encodeURIComponent(v.rec.t.replace(/\s*\(TV\)$/,''));
+  let j=await omdb(`t=${t}&y=${v.rec.y}`,key);
+  if(j.Response==='False')j=await omdb(`t=${t}`,key);
+  if(j.Response==='False'){const s=await omdb(`s=${t}`,key);if(s.Response==='True'&&s.Search&&s.Search[0])j=await omdb(`i=${s.Search[0].imdbID}`,key);}
+  const rec=j.Response==='False'?{imdbID:null,imdbRating:null,poster:null}:
+    {imdbID:j.imdbID||null,imdbRating:(j.imdbRating&&j.imdbRating!=='N/A')?j.imdbRating:null,poster:(j.Poster&&j.Poster!=='N/A')?j.Poster:null};
+  cache[id]=rec;Object.assign(v,rec);return !!rec.imdbID;
+}
+async function loadIMDb(){
+  const key=$('key').value.trim();if(!key){toast('Enter your OMDb key','err');return;}
+  $('statusbar').classList.remove('hidden');$('total').textContent=st.size;$('loadBtn').disabled=true;
+  const cache=loadCache();const items=[...st.values()];let done=0,fails=0,idx=0;
+  async function worker(){while(idx<items.length){const v=items[idx++];let ok=false;try{ok=await resolve(v,key,cache);}catch(e){}if(!ok)fails++;done++;
+    $('done').textContent=done;$('prog').style.width=(done/items.length*100)+'%';if(fails)$('fails').innerHTML='<span class="err">'+fails+' not matched</span>';
+    const card=grid.querySelector(`.card[data-id="${CSS.escape(KID(v.rec))}"]`);if(card){const t=document.createElement('div');t.innerHTML=cardHTML(v);card.replaceWith(t.firstElementChild);}}}
+  await Promise.all(Array.from({length:6},worker));saveCache(cache);$('loadBtn').disabled=false;counts();
+}
+$('loadBtn').addEventListener('click',loadIMDb);
+
+/* ============================================================
+   FIREBASE  (sign-in + sync)
+   ============================================================ */
+function initFirebase(){
+  if(!FIREBASE_CONFIG||!FIREBASE_CONFIG.projectId){return false;}
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db=firebase.firestore();
+    firebase.auth().onAuthStateChanged(u=>{
+      user=u;
+      if(u){setSync(true,'synced · '+(u.displayName||u.email||'signed in'));$('signinBtn').textContent='Sign out';
+        // merge: pull cloud, if empty push local
+        db.collection('users').doc(u.uid).get().then(doc=>{
+          const d=doc.data();
+          if(d&&d.state&&Object.keys(d.state).length){applySnapshot(d.state);saveLocal();render();}
+          else{saveCloud();}
+          watchCloud();
+        });
+      }else{setSync(false,'local only');$('signinBtn').textContent='Sign in to sync';}
+    });
+    return true;
+  }catch(e){console.warn(e);return false;}
+}
+function setSync(on,txt){const p=$('syncPill');p.classList.toggle('on',on);$('syncTxt').textContent=txt;}
+$('signinBtn').addEventListener('click',()=>{
+  if(!db){openSetup();return;}
+  if(user){firebase.auth().signOut();}
+  else{const p=new firebase.auth.GoogleAuthProvider();firebase.auth().signInWithPopup(p).catch(e=>toast('Sign-in failed: '+e.message,'err'));}
+});
+
+/* ============================================================
+   TRAKT  (device-code flow; token exchange via Firebase Fn)
+   ============================================================ */
+const TK='reel.trakt.token.v1';
+function loadTraktToken(){try{const t=JSON.parse(localStorage.getItem(TK)||'null');if(t&&t.access_token){traktToken=t.access_token;markTrakt(true);}}catch(e){}}
+function markTrakt(on){$('traktBtn').textContent=on?'Trakt ✓':'Connect Trakt';}
+async function traktHeaders(){return{'Content-Type':'application/json','trakt-api-version':'2','trakt-api-key':TRAKT_CLIENT_ID,...(traktToken?{'Authorization':'Bearer '+traktToken}:{})};}
+
+async function connectTrakt(){
+  if(!TRAKT_CLIENT_ID||!TRAKT_TOKEN_FN){openSetup('trakt');return;}
+  if(traktToken){ // already connected -> offer import
+    dlgImportFromTrakt();return;
+  }
+  // device code
+  let dev;
+  try{const r=await fetch('https://api.trakt.tv/oauth/device/code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:TRAKT_CLIENT_ID})});dev=await r.json();}
+  catch(e){toast('Could not reach Trakt: '+e.message,'err');return;}
+  openDlg(`<h2>Connect Trakt</h2>
+    <p>On any device, open the link and enter this code:</p>
+    <p style="text-align:center"><a href="${dev.verification_url}" target="_blank" rel="noopener" style="color:var(--teal)">${dev.verification_url}</a></p>
+    <div class="big">${dev.user_code}</div>
+    <p id="tkWait">Waiting for you to approve…</p>`);
+  const deadline=Date.now()+(dev.expires_in||600)*1000;const interval=(dev.interval||5)*1000;
+  while(Date.now()<deadline){
+    await new Promise(r=>setTimeout(r,interval));
+    try{
+      const r=await fetch(TRAKT_TOKEN_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:dev.device_code})});
+      if(r.status===200){const tok=await r.json();traktToken=tok.access_token;localStorage.setItem(TK,JSON.stringify(tok));markTrakt(true);
+        const w=$('tkWait');if(w)w.innerHTML='<span class="ok">Connected. You can import or push now.</span>';return;}
+    }catch(e){}
+  }
+  const w=$('tkWait');if(w)w.innerHTML='<span class="err">Timed out — try again.</span>';
+}
+$('traktBtn').addEventListener('click',connectTrakt);
+
+async function dlgImportFromTrakt(){
+  openDlg(`<h2>Trakt connected</h2><p>Pull your existing ratings and history from Trakt into this tracker, or push your changes up.</p>
+    <div class="row"><button class="btn" id="tkPull">Import from Trakt</button><button class="btn ghost" id="tkPush">Push ratings to Trakt</button></div>
+    <p class="note" id="tkMsg"></p>`);
+  $('tkPull').onclick=importFromTrakt;
+  $('tkPush').onclick=pushToTrakt;
+}
+async function importFromTrakt(){
+  const m=$('tkMsg');if(m)m.textContent='Fetching…';
+  try{
+    const h=await traktHeaders();
+    const [rm,rs,wm,ws,wl]=await Promise.all([
+      fetch('https://api.trakt.tv/sync/ratings/movies',{headers:h}).then(r=>r.json()),
+      fetch('https://api.trakt.tv/sync/ratings/shows',{headers:h}).then(r=>r.json()),
+      fetch('https://api.trakt.tv/sync/watched/movies',{headers:h}).then(r=>r.json()),
+      fetch('https://api.trakt.tv/sync/watched/shows',{headers:h}).then(r=>r.json()),
+      fetch('https://api.trakt.tv/sync/watchlist',{headers:h}).then(r=>r.json()),
+    ]);
+    // match by imdb id against our resolved cards
+    const byImdb=new Map();st.forEach(v=>{if(v.imdbID)byImdb.set(v.imdbID,v);});
+    let touched=0;
+    const setRate=(arr,kk)=>arr.forEach(x=>{const o=x[kk]||x.movie||x.show;const im=o&&o.ids&&o.ids.imdb;const v=im&&byImdb.get(im);if(v){v.score=x.rating;touched++;}});
+    setRate(rm,'movie');setRate(rs,'show');
+    const setWatched=(arr,kk)=>arr.forEach(x=>{const o=x[kk]||x.movie||x.show;const im=o&&o.ids&&o.ids.imdb;const v=im&&byImdb.get(im);if(v&&v.status!=='watched'){v.status='watched';touched++;}});
+    setWatched(wm,'movie');setWatched(ws,'show');
+    (wl||[]).forEach(x=>{const o=x.movie||x.show;const im=o&&o.ids&&o.ids.imdb;const v=im&&byImdb.get(im);if(v&&!v.status){v.status='watch';touched++;}});
+    persist();render();if(m)m.innerHTML='<span class="ok">Imported — '+touched+' items updated. (Only matches within these 100 are affected.)</span>';
+  }catch(e){if(m)m.innerHTML='<span class="err">Import failed: '+e.message+'. Load IMDb first so titles have IDs.</span>';}
+}
+async function pushToTrakt(){
+  const m=$('tkMsg');if(m)m.textContent='Pushing…';
+  const payload=buildTraktPayload();
+  if(!payload.movies.length&&!payload.shows.length){if(m)m.innerHTML='<span class="err">Nothing rated with a resolved IMDb ID yet.</span>';return;}
+  try{
+    const h=await traktHeaders();let am=0,as=0;
+    const chunk=(a,n)=>{const o=[];for(let i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o;};
+    for(const c of chunk(payload.movies,25)){const r=await fetch('https://api.trakt.tv/sync/ratings',{method:'POST',headers:h,body:JSON.stringify({movies:c})});const j=await r.json();am+=(j.added&&j.added.movies)||0;}
+    for(const c of chunk(payload.shows,25)){const r=await fetch('https://api.trakt.tv/sync/ratings',{method:'POST',headers:h,body:JSON.stringify({shows:c})});const j=await r.json();as+=(j.added&&j.added.shows)||0;}
+    if(m)m.innerHTML=`<span class="ok">Pushed — ${am} movies, ${as} shows added to Trakt.</span>`;
+  }catch(e){if(m)m.innerHTML='<span class="err">Push failed: '+e.message+'</span>';}
+}
+function buildTraktPayload(){
+  const now=new Date().toISOString(),movies=[],shows=[];
+  st.forEach(v=>{if(!v.score||!v.imdbID)return;(v.rec.k==='movie'?movies:shows).push({ids:{imdb:v.imdbID},rating:v.score,rated_at:now});});
+  return {movies,shows};
+}
+
+/* ============================================================
+   AI export / import  +  file Trakt fallback
+   ============================================================ */
+function dl(name,text,type){const b=new Blob([text],{type});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);}
+
+function tasteProfile(){
+  const seen=[],liked=[],disliked=[],watchlist=[];
+  st.forEach(v=>{
+    const tag=v.rec.t+' ('+v.rec.y+')';
+    if(v.status==='watched'||v.score)seen.push(tag);
+    if(v.score>=8)liked.push(tag);
+    if(v.score&&v.score<=5)disliked.push(tag);
+    if(v.status==='watch')watchlist.push(tag);
+  });
+  return {seen,liked,disliked,watchlist};
+}
+$('aiBtn').addEventListener('click',()=>{
+  const p=tasteProfile();
+  const data={
+    note:"Taste profile for movie/TV recommendations. Use 'avoid' as a hard dedupe list.",
+    likes:["tight twist/mystery thrillers","epic prestige drama (war, historical, crime)","grounded emotional sci-fi","humanist/uplifting drama incl. Indian cinema","quality animation"],
+    dislikes:["reality/competition TV","anthology series","comedy-of-ideas / philosophy sitcoms","cold or meandering arthouse","heavy anime — keep anime to a rare best-of-the-best minimum"],
+    rated_highly:p.liked,
+    rated_low:p.disliked,
+    watchlist:p.watchlist,
+    avoid_already_seen:p.seen
+  };
+  dl('reel-taste-profile.json',JSON.stringify(data,null,2),'application/json');
+  const prompt=`I want 100 movie & TV recommendations, ranked from most to least likely I'll love.
+
+I've attached reel-taste-profile.json. Use "avoid_already_seen" as a HARD exclusion list — never recommend anything on it. Match "likes", respect "dislikes" (especially: keep anime to a rare minimum — only an all-time best, if any).
+
+Return ONLY a JSON object in exactly this shape, no prose:
+{"recs":[{"r":1,"t":"Title","y":2016,"k":"movie","g":["Thriller","Sci-Fi"],"w":"one-line why it fits me","c":"S"}]}
+- r = rank (1 = most likely I'll love), unique 1..100
+- k = "movie" or "show"
+- g = 1-3 genre tags
+- c = "S" (top pick), "A" (strong), or "B" (worth it)
+Order the array by r. Favour my specific threads: constructed thrillers, grounded sci-fi, prestige epics, Indian cinema, humanist drama. Avoid obvious canonical picks I've surely seen.`;
+  openDlg(`<h2>Export for AI</h2>
+    <p>Downloaded <code>reel-taste-profile.json</code>. Start a new AI chat, attach that file, and paste the prompt below. When it replies with JSON, save it as a <code>.json</code> file and use “Import AI list”.</p>
+    <h3>Prompt</h3><pre id="aiPrompt">${prompt.replace(/</g,'&lt;')}</pre>
+    <div class="row"><button class="btn" id="copyPrompt">Copy prompt</button></div>`);
+  $('copyPrompt').onclick=()=>{navigator.clipboard.writeText(prompt);$('copyPrompt').textContent='Copied ✓';};
+});
+
+$('importBtn').addEventListener('click',()=>$('fileInput').click());
+$('fileInput').addEventListener('change',async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const txt=await f.text();const j=JSON.parse(txt);
+    let list=j.recs||j.RECS||(Array.isArray(j)?j:null);
+    if(!list){toast('Could not find a recs array in that file','err');return;}
+    // rebuild RECS + state, preserving any existing status/score by title|year
+    const prev=snapshot();
+    st.clear();
+    list.forEach((r,i)=>{
+      const rec={r:r.r||i+1,t:r.t,y:r.y,k:r.k==='show'?'show':'movie',g:Array.isArray(r.g)?r.g:[],w:r.w||'',c:r.c||'A'};
+      st.set(KID(rec),{rec,imdbID:null,imdbRating:null,poster:null,status:'',score:null});
+    });
+    applySnapshot(prev); // carry over marks for titles that survived
+    buildGenreBarFrom([...st.values()].flatMap(v=>v.rec.g));
+    persist();render();
+    toast('Imported '+list.length+' recommendations','ok');
+    closeDlg();
+  }catch(err){toast('Import error: '+err.message,'err');}
+  e.target.value='';
+});
+function buildGenreBarFrom(genres){
+  const set=[...new Set(genres)].sort();
+  $('genrebar').innerHTML='<button data-g="" class="on">All genres</button>'+set.map(g=>`<button data-g="${g}">${g}</button>`).join('');
+  fGenre=null;
+}
+
+/* Push to Trakt button (bottom bar): direct if connected, else file fallback */
+$('traktExportBtn').addEventListener('click',()=>{
+  if(traktToken){dlgImportFromTrakt();return;}
+  const payload=buildTraktPayload();
+  if(!payload.movies.length&&!payload.shows.length){toast('Rate some titles first (and Load IMDb so they have IDs)','err');return;}
+  dl('trakt-ratings.json',JSON.stringify(payload,null,2),'application/json');
+  openDlg(`<h2>Pushed to file</h2><p>Trakt isn't connected, so I exported <code>trakt-ratings.json</code>. Send it up with the Python bridge:</p>
+    <pre>python3 push_to_trakt.py trakt-ratings.json</pre>
+    <p>Or connect Trakt (top right) to push directly next time.</p>`);
+});
+
+/* ============================================================
+   DIALOG + setup
+   ============================================================ */
+function openDlg(html){$('dlgBody').innerHTML=html;$('dlg').showModal();}
+function closeDlg(){$('dlg').close();}
+$('dlgX').addEventListener('click',closeDlg);
+function toast(msg,kind){openDlg(`<p class="${kind==='err'?'err':kind==='ok'?'ok':''}" style="margin:0">${msg}</p>`);}
+
+function openSetup(focus){
+  openDlg(`<h2>One-time setup</h2>
+  <p>This file works fully offline right now (local to this browser). To unlock <b>cross-device sync</b> and <b>direct Trakt</b>, fill the three values at the top of the file's script and host it.</p>
+  <h3>1 · Host it (free)</h3>
+  <p>Create a free GitHub repo, upload this <code>index.html</code>, enable Pages (Settings → Pages → branch <code>main</code>). You'll get an <code>https://you.github.io/...</code> URL that opens on phone + desktop.</p>
+  <h3>2 · Firebase (sync + login)</h3>
+  <p>Create a project at console.firebase.google.com → add a Web app → copy the config object into <code>FIREBASE_CONFIG</code>. Enable Authentication → Google, and create a Firestore database (test mode is fine to start). Add your Pages URL under Authentication → Settings → Authorised domains.</p>
+  <h3>3 · Trakt (direct connect)</h3>
+  <p>At trakt.tv/oauth/applications, your app's Client ID goes in <code>TRAKT_CLIENT_ID</code>. Deploy the included <code>traktToken</code> Firebase Function (it holds the secret safely) and put its URL in <code>TRAKT_TOKEN_FN</code>. Without this, Trakt still works via the file + Python bridge.</p>
+  <p class="note">Until configured, Sign-in and Connect-Trakt buttons open this guide. Everything else works now.</p>`);
+}
+$('helpBtn').addEventListener('click',()=>openSetup());
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+buildGenreBar();
+loadLocal();
+render();
+const fbOk=initFirebase();
+if(!fbOk)setSync(false,'local only');
+loadTraktToken();
+window.addEventListener('load',()=>{ if($('key').value.trim()) loadIMDb(); });
+
+</script>
+</body>
+</html>

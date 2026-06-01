@@ -843,13 +843,30 @@ async function runGenerate(){
   if(!key){msg.innerHTML='<span class="err">Enter your Gemini key first.</span>';return;}
   if(!model){msg.innerHTML='<span class="err">Test your key and pick a model first.</span>';return;}
   const p=tasteProfile();
-  const profile={likes:["constructed twist/mystery thrillers","prestige epics","grounded emotional sci-fi","humanist/Indian drama","quality animation, minimal anime"],
-    dislikes:["reality TV","anthologies","comedy-of-ideas","cold/slow arthouse","heavy anime"],
-    my_ratings:p.ratings,watchlist:p.watchlist,not_interested:p.notInterested,avoid_already_seen:p.seen};
-  const basePrompt=getPrompt().replace(/\bexactly\s+\d+\b/gi,'exactly '+count).replace(/\b\d+\s+(movies?\s*&?\s*TV|picks|recommendations|titles)\b/gi,count+' $1');
-  const instruction=basePrompt+`\n\nIMPORTANT: return exactly ${count} items, ranked 1..${count}.\n\nHere is my data (JSON):\n`+JSON.stringify(profile);
+  // The complete exclusion set: seen, watchlisted, and not-interested all count as "do not recommend".
+  const excludeSet=new Set([...p.seen,...p.watchlist,...p.notInterested].map(s=>s.toLowerCase()));
+  const profile={
+    my_ratings:p.ratings,
+    rated_high:p.liked, rated_low:p.disliked,
+    do_not_recommend:[...new Set([...p.seen,...p.watchlist,...p.notInterested])]
+  };
+  // Self-contained instruction (we do NOT regex-edit the custom prompt — that was unreliable).
+  const userPrompt=getPrompt();
+  const instruction=
+`${userPrompt}
+
+STRICT RULES FOR THIS REQUEST (override any conflicting numbers above):
+1. Return EXACTLY ${count} recommendations — no more, no fewer.
+2. NEVER recommend anything in "do_not_recommend" — these are already seen, watchlisted, or rejected. This is a hard exclusion.
+3. Every item must be something I have NOT encountered. Prefer lesser-known strong fits over obvious classics.
+4. Output ONLY a JSON object: {"recs":[{"r":1,"t":"Title","y":2016,"k":"movie","g":["Thriller"],"w":"why it fits me","c":"S"}]} — r unique 1..${count}, k is "movie" or "show", g is 1-3 genres, c is "S"/"A"/"B".
+
+My data (JSON):
+${JSON.stringify(profile)}`;
   const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-  const body=JSON.stringify({contents:[{parts:[{text:instruction}]}],generationConfig:{temperature:0.7,responseMimeType:"application/json"}});
+  // generous output budget so larger lists never truncate
+  const maxTok=Math.min(32000,1200+count*180);
+  const body=JSON.stringify({contents:[{parts:[{text:instruction}]}],generationConfig:{temperature:0.8,responseMimeType:"application/json",maxOutputTokens:maxTok}});
   for(let attempt=1;attempt<=3;attempt++){
     msg.innerHTML='Generating '+count+' picks with '+model+'… '+(attempt>1?'(retry '+attempt+') ':'')+'this can take 10–30s.';
     try{
@@ -861,18 +878,28 @@ async function runGenerate(){
           msg.innerHTML='<span class="note">'+model+' busy ('+r.status+'), retrying in '+(attempt*4)+'s…</span>';
           await new Promise(res=>setTimeout(res,attempt*4000));continue;
         }
-        msg.innerHTML='<span class="err">Gemini error: '+em+'<br>Tip: if a model is busy or unavailable, pick a different one (Flash models are most available).</span>';return;
+        msg.innerHTML='<span class="err">Gemini error: '+em+'<br>Tip: if a model is busy or unavailable, pick a different one.</span>';return;
       }
-      let text=(((j.candidates||[])[0]||{}).content||{}).parts;text=text&&text[0]&&text[0].text;
-      if(!text){msg.innerHTML='<span class="err">Empty response (safety filter or quota). Try another model.</span>';return;}
+      const cand=(j.candidates||[])[0]||{};
+      let text=((cand.content||{}).parts||[])[0];text=text&&text.text;
+      const finish=cand.finishReason||'';
+      if(!text){msg.innerHTML='<span class="err">Empty response'+(finish?' (finishReason: '+finish+')':'')+'. Try another model.</span>';return;}
       text=text.replace(/```json|```/g,'').trim();
       let parsed;try{parsed=JSON.parse(text);}catch(e){const m2=text.match(/\{[\s\S]*\}/);if(m2){try{parsed=JSON.parse(m2[0]);}catch(e2){}}}
-      const list=parsed&&(parsed.recs||parsed.RECS||(Array.isArray(parsed)?parsed:null));
-      if(!list||!list.length){msg.innerHTML='<span class="err">Could not parse a list from the reply. Try again or use file import.</span>';return;}
+      let list=parsed&&(parsed.recs||parsed.RECS||(Array.isArray(parsed)?parsed:null));
+      if(!list||!list.length){msg.innerHTML='<span class="err">Could not parse a list'+(finish==='MAX_TOKENS'?' (response was cut off — try a smaller count)':'')+'. Try again or use file import.</span>';return;}
+      // SAFETY NET: drop anything already seen/watchlisted/dismissed even if the model ignored the rule.
+      const before=list.length;
+      list=list.filter(it=>{const tag=((it.t||'')+' ('+(it.y||'')+')').toLowerCase();return !excludeSet.has(tag) && !excludeSet.has((it.t||'').toLowerCase());});
+      const dropped=before-list.length;
+      if(!list.length){msg.innerHTML='<span class="err">All '+before+' suggestions were things you\u2019ve already filed. Try a higher count or a different model.</span>';return;}
       applyRecsList(list);
-      msg.innerHTML='<span class="ok">Generated '+list.length+' picks. Loading posters…</span>';
+      let note='Generated '+list.length+' picks';
+      if(dropped)note+=' ('+dropped+' filtered out as already-seen)';
+      if(list.length<count)note+=' — model returned fewer than '+count+'; try again or another model for more';
+      msg.innerHTML='<span class="ok">'+note+'. Loading posters…</span>';
       if($('key').value.trim())loadIMDb();
-      setTimeout(closeDlg,900);return;
+      setTimeout(closeDlg,1200);return;
     }catch(e){
       if(attempt<3){await new Promise(res=>setTimeout(res,attempt*3000));continue;}
       msg.innerHTML='<span class="err">Request failed: '+e.message+'</span>';

@@ -150,8 +150,8 @@
       <button data-t="movie">Films</button>
       <button data-t="show">Shows</button>
     </div>
+    <select id="genreSelect" style="margin-left:2px"><option value="">All genres</option></select>
   </div>
-  <div class="genrebar" id="genrebar"></div>
 
   <div class="status hidden" id="statusbar">
     <span><b id="done">0</b>/<span id="total">0</span> IMDb loaded</span>
@@ -246,14 +246,10 @@ let fStatus='all',fType='all',sortBy='rank',search='',fGenre=null;
 
 const ALL_GENRES=[...new Set(RECS.flatMap(r=>r.g))].sort();
 function buildGenreBar(){
-  $('genrebar').innerHTML='<button data-g="" class="on">All genres</button>'+
-    ALL_GENRES.map(g=>`<button data-g="${g}">${g}</button>`).join('');
+  const sel=$('genreSelect');if(!sel)return;
+  sel.innerHTML='<option value="">All genres</option>'+ALL_GENRES.map(g=>`<option value="${g}">${g}</option>`).join('');
 }
-$('genrebar').addEventListener('click',e=>{
-  const b=e.target.closest('button');if(!b)return;
-  [...e.currentTarget.children].forEach(c=>c.classList.remove('on'));b.classList.add('on');
-  fGenre=b.dataset.g||null;render();
-});
+$('genreSelect').addEventListener('change',e=>{fGenre=e.target.value||null;render();});
 
 function visible(){
   let arr=[...st.values()].filter(v=>{
@@ -420,14 +416,27 @@ async function connectTrakt(){
 $('traktBtn').addEventListener('click',connectTrakt);
 
 async function dlgImportFromTrakt(){
-  openDlg(`<h2>Trakt connected</h2><p>Pull your existing ratings and history from Trakt into this tracker, or push your changes up.</p>
-    <div class="row"><button class="btn" id="tkPull">Import from Trakt</button><button class="btn ghost" id="tkPush">Push ratings to Trakt</button></div>
+  openDlg(`<h2>Trakt connected</h2><p>Import your full Trakt library (everything you've rated, watched, and watchlisted — used to make AI lists smarter), or push what you've marked here back up.</p>
+    <h3>Import</h3>
+    <div class="row"><button class="btn" id="tkPull">Import everything from Trakt</button></div>
+    <h3>Push</h3>
+    <div class="row"><button class="btn ghost" id="tkPushR">Push ratings</button><button class="btn ghost" id="tkPushW">Push watchlist</button><button class="btn ghost" id="tkPushB">Push both</button></div>
     <p class="note" id="tkMsg"></p>`);
   $('tkPull').onclick=importFromTrakt;
-  $('tkPush').onclick=pushToTrakt;
+  $('tkPushR').onclick=()=>pushToTrakt({ratings:true});
+  $('tkPushW').onclick=()=>pushToTrakt({watchlist:true});
+  $('tkPushB').onclick=()=>pushToTrakt({ratings:true,watchlist:true});
 }
+
+// Full Trakt library, kept separate from the 100 cards. Informs AI export + dedupe.
+// shape: {movies:{imdb:{title,year,rating,watched,watchlisted}}, shows:{...}}
+let LIB={movies:{},shows:{}};
+const LIBLS='reel.library.v1';
+function loadLib(){try{LIB=JSON.parse(localStorage.getItem(LIBLS)||'{"movies":{},"shows":{}}');}catch(e){LIB={movies:{},shows:{}};}}
+function saveLib(){try{localStorage.setItem(LIBLS,JSON.stringify(LIB));}catch(e){}}
+
 async function importFromTrakt(){
-  const m=$('tkMsg');if(m)m.textContent='Fetching…';
+  const m=$('tkMsg');if(m)m.textContent='Fetching your full Trakt library…';
   try{
     const h=await traktHeaders();
     const [rm,rs,wm,ws,wl]=await Promise.all([
@@ -437,32 +446,60 @@ async function importFromTrakt(){
       fetch('https://api.trakt.tv/sync/watched/shows',{headers:h}).then(r=>r.json()),
       fetch('https://api.trakt.tv/sync/watchlist',{headers:h}).then(r=>r.json()),
     ]);
-    // match by imdb id against our resolved cards
+    // 1) Build the full library store (all titles, not just the 100)
+    LIB={movies:{},shows:{}};
+    const put=(bucket,o,patch)=>{const im=o&&o.ids&&o.ids.imdb;if(!im)return;bucket[im]=Object.assign({title:o.title,year:o.year},bucket[im],patch);};
+    rm.forEach(x=>put(LIB.movies,x.movie,{rating:x.rating}));
+    rs.forEach(x=>put(LIB.shows,x.show,{rating:x.rating}));
+    wm.forEach(x=>put(LIB.movies,x.movie,{watched:true}));
+    ws.forEach(x=>put(LIB.shows,x.show,{watched:true}));
+    (wl||[]).forEach(x=>{if(x.movie)put(LIB.movies,x.movie,{watchlisted:true});if(x.show)put(LIB.shows,x.show,{watchlisted:true});});
+    saveLib();
+    // 2) Reflect onto the 100 cards where they match (so the grid shows your marks)
     const byImdb=new Map();st.forEach(v=>{if(v.imdbID)byImdb.set(v.imdbID,v);});
     let touched=0;
-    const setRate=(arr,kk)=>arr.forEach(x=>{const o=x[kk]||x.movie||x.show;const im=o&&o.ids&&o.ids.imdb;const v=im&&byImdb.get(im);if(v){v.score=x.rating;touched++;}});
-    setRate(rm,'movie');setRate(rs,'show');
-    const setWatched=(arr,kk)=>arr.forEach(x=>{const o=x[kk]||x.movie||x.show;const im=o&&o.ids&&o.ids.imdb;const v=im&&byImdb.get(im);if(v&&v.status!=='watched'){v.status='watched';touched++;}});
-    setWatched(wm,'movie');setWatched(ws,'show');
-    (wl||[]).forEach(x=>{const o=x.movie||x.show;const im=o&&o.ids&&o.ids.imdb;const v=im&&byImdb.get(im);if(v&&!v.status){v.status='watch';touched++;}});
-    persist();render();if(m)m.innerHTML='<span class="ok">Imported — '+touched+' items updated. (Only matches within these 100 are affected.)</span>';
-  }catch(e){if(m)m.innerHTML='<span class="err">Import failed: '+e.message+'. Load IMDb first so titles have IDs.</span>';}
+    const apply=(im,patch)=>{const v=byImdb.get(im);if(!v)return;if(patch.rating!=null&&!v.score){v.score=patch.rating;touched++;}if(patch.watched&&v.status!=='watched'){v.status='watched';touched++;}if(patch.watchlisted&&!v.status){v.status='watch';touched++;}};
+    rm.forEach(x=>x.movie.ids.imdb&&apply(x.movie.ids.imdb,{rating:x.rating}));
+    rs.forEach(x=>x.show.ids.imdb&&apply(x.show.ids.imdb,{rating:x.rating}));
+    wm.forEach(x=>x.movie.ids.imdb&&apply(x.movie.ids.imdb,{watched:true}));
+    ws.forEach(x=>x.show.ids.imdb&&apply(x.show.ids.imdb,{watched:true}));
+    (wl||[]).forEach(x=>{const o=x.movie||x.show;if(o&&o.ids&&o.ids.imdb)apply(o.ids.imdb,{watchlisted:true});});
+    persist();render();
+    const total=Object.keys(LIB.movies).length+Object.keys(LIB.shows).length;
+    if(m)m.innerHTML=`<span class="ok">Imported your full library — ${total} titles stored (${touched} matched the visible 100). The AI export now knows everything you've seen.</span>`;
+  }catch(e){if(m)m.innerHTML='<span class="err">Import failed: '+e.message+'. Click Load IMDb first so titles have IDs.</span>';}
 }
-async function pushToTrakt(){
+
+async function pushToTrakt(opts){
+  opts=opts||{ratings:true};
   const m=$('tkMsg');if(m)m.textContent='Pushing…';
-  const payload=buildTraktPayload();
-  if(!payload.movies.length&&!payload.shows.length){if(m)m.innerHTML='<span class="err">Nothing rated with a resolved IMDb ID yet.</span>';return;}
   try{
-    const h=await traktHeaders();let am=0,as=0;
+    const h=await traktHeaders();
     const chunk=(a,n)=>{const o=[];for(let i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o;};
-    for(const c of chunk(payload.movies,25)){const r=await fetch('https://api.trakt.tv/sync/ratings',{method:'POST',headers:h,body:JSON.stringify({movies:c})});const j=await r.json();am+=(j.added&&j.added.movies)||0;}
-    for(const c of chunk(payload.shows,25)){const r=await fetch('https://api.trakt.tv/sync/ratings',{method:'POST',headers:h,body:JSON.stringify({shows:c})});const j=await r.json();as+=(j.added&&j.added.shows)||0;}
-    if(m)m.innerHTML=`<span class="ok">Pushed — ${am} movies, ${as} shows added to Trakt.</span>`;
+    let parts=[];
+    if(opts.ratings){
+      const p=buildTraktPayload();let am=0,as=0;
+      for(const c of chunk(p.movies,25)){const r=await fetch('https://api.trakt.tv/sync/ratings',{method:'POST',headers:h,body:JSON.stringify({movies:c})});const j=await r.json();am+=(j.added&&j.added.movies)||0;}
+      for(const c of chunk(p.shows,25)){const r=await fetch('https://api.trakt.tv/sync/ratings',{method:'POST',headers:h,body:JSON.stringify({shows:c})});const j=await r.json();as+=(j.added&&j.added.shows)||0;}
+      parts.push(`ratings: ${am} films, ${as} shows`);
+    }
+    if(opts.watchlist){
+      const w=buildWatchlistPayload();let wm2=0,ws2=0;
+      for(const c of chunk(w.movies,25)){const r=await fetch('https://api.trakt.tv/sync/watchlist',{method:'POST',headers:h,body:JSON.stringify({movies:c})});const j=await r.json();wm2+=(j.added&&j.added.movies)||0;}
+      for(const c of chunk(w.shows,25)){const r=await fetch('https://api.trakt.tv/sync/watchlist',{method:'POST',headers:h,body:JSON.stringify({shows:c})});const j=await r.json();ws2+=(j.added&&j.added.shows)||0;}
+      parts.push(`watchlist: ${wm2} films, ${ws2} shows`);
+    }
+    if(m)m.innerHTML=`<span class="ok">Pushed — ${parts.join(' · ')}. View the watchlist in Nuvio shortly.</span>`;
   }catch(e){if(m)m.innerHTML='<span class="err">Push failed: '+e.message+'</span>';}
 }
 function buildTraktPayload(){
   const now=new Date().toISOString(),movies=[],shows=[];
   st.forEach(v=>{if(!v.score||!v.imdbID)return;(v.rec.k==='movie'?movies:shows).push({ids:{imdb:v.imdbID},rating:v.score,rated_at:now});});
+  return {movies,shows};
+}
+function buildWatchlistPayload(){
+  const movies=[],shows=[];
+  st.forEach(v=>{if(v.status!=='watch'||!v.imdbID)return;(v.rec.k==='movie'?movies:shows).push({ids:{imdb:v.imdbID}});});
   return {movies,shows};
 }
 
@@ -472,15 +509,25 @@ function buildTraktPayload(){
 function dl(name,text,type){const b=new Blob([text],{type});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);}
 
 function tasteProfile(){
-  const seen=[],liked=[],disliked=[],watchlist=[];
+  const seen=new Set(),liked=new Set(),disliked=new Set(),watchlist=new Set();
+  // From the visible 100 cards
   st.forEach(v=>{
     const tag=v.rec.t+' ('+v.rec.y+')';
-    if(v.status==='watched'||v.score)seen.push(tag);
-    if(v.score>=8)liked.push(tag);
-    if(v.score&&v.score<=5)disliked.push(tag);
-    if(v.status==='watch')watchlist.push(tag);
+    if(v.status==='watched'||v.score)seen.add(tag);
+    if(v.score>=8)liked.add(tag);
+    if(v.score&&v.score<=5)disliked.add(tag);
+    if(v.status==='watch')watchlist.add(tag);
   });
-  return {seen,liked,disliked,watchlist};
+  // From the full imported Trakt library (everything, not just the 100)
+  const fold=bucket=>Object.values(bucket).forEach(o=>{
+    const tag=o.title+(o.year?' ('+o.year+')':'');
+    if(o.rating||o.watched)seen.add(tag);
+    if(o.rating>=8)liked.add(tag);
+    if(o.rating&&o.rating<=5)disliked.add(tag);
+    if(o.watchlisted)watchlist.add(tag);
+  });
+  fold(LIB.movies);fold(LIB.shows);
+  return {seen:[...seen],liked:[...liked],disliked:[...disliked],watchlist:[...watchlist]};
 }
 $('aiBtn').addEventListener('click',()=>{
   const p=tasteProfile();
@@ -536,7 +583,7 @@ $('fileInput').addEventListener('change',async e=>{
 });
 function buildGenreBarFrom(genres){
   const set=[...new Set(genres)].sort();
-  $('genrebar').innerHTML='<button data-g="" class="on">All genres</button>'+set.map(g=>`<button data-g="${g}">${g}</button>`).join('');
+  const sel=$('genreSelect');if(sel)sel.innerHTML='<option value="">All genres</option>'+set.map(g=>`<option value="${g}">${g}</option>`).join('');
   fGenre=null;
 }
 
@@ -544,11 +591,13 @@ function buildGenreBarFrom(genres){
 $('traktExportBtn').addEventListener('click',()=>{
   if(traktToken){dlgImportFromTrakt();return;}
   const payload=buildTraktPayload();
-  if(!payload.movies.length&&!payload.shows.length){toast('Rate some titles first (and Load IMDb so they have IDs)','err');return;}
-  dl('trakt-ratings.json',JSON.stringify(payload,null,2),'application/json');
-  openDlg(`<h2>Pushed to file</h2><p>Trakt isn't connected, so I exported <code>trakt-ratings.json</code>. Send it up with the Python bridge:</p>
+  const wl=buildWatchlistPayload();
+  if(!payload.movies.length&&!payload.shows.length&&!wl.movies.length&&!wl.shows.length){toast('Rate or watchlist some titles first (and Load IMDb so they have IDs)','err');return;}
+  if(payload.movies.length||payload.shows.length)dl('trakt-ratings.json',JSON.stringify(payload,null,2),'application/json');
+  if(wl.movies.length||wl.shows.length)dl('trakt-watchlist.json',JSON.stringify(wl,null,2),'application/json');
+  openDlg(`<h2>Pushed to file</h2><p>Trakt isn't connected, so I exported your data as file(s). Send ratings up with the Python bridge:</p>
     <pre>python3 push_to_trakt.py trakt-ratings.json</pre>
-    <p>Or connect Trakt (top right) to push directly next time.</p>`);
+    <p>Or connect Trakt (top right) to push ratings <i>and</i> watchlist directly next time.</p>`);
 });
 
 /* ============================================================
@@ -577,6 +626,7 @@ $('helpBtn').addEventListener('click',()=>openSetup());
    ============================================================ */
 buildGenreBar();
 loadLocal();
+loadLib();
 render();
 const fbOk=initFirebase();
 if(!fbOk)setSync(false,'local only');

@@ -260,7 +260,14 @@ const st = new Map();
 RECS.forEach(r => st.set(KID(r), {rec:r, imdbID:null, imdbRating:null, poster:null, status:'', score:null}));
 
 const LS='reel.state.v1', CACHE='reel.omdb.v1';
+const GROUPKEY='reel.group.v1', NAMEKEY='reel.displayname.v1';
 let user=null, db=null, traktToken=null, syncing=false;
+// State that render()/renderShared() touch — declared up here so they can never
+// be read before initialization regardless of boot/callback ordering.
+let LIB={movies:{},shows:{}};
+let GROUP=localStorage.getItem(GROUPKEY)||'';
+let sharedItems=[];
+let sharedUnsub=null;
 
 /* ---- local persistence ---- */
 function snapshot(){const o={};st.forEach((v,k)=>{if(v.status||v.score)o[k]={status:v.status,score:v.score};});return o;}
@@ -375,7 +382,7 @@ function cardHTML(v){
 }
 function render(){
   if(fStatus==='shared'){renderShared();return;}
-  $('sharebar').classList.add('hidden');$('sharebar').style.display='';
+  $('sharebar').classList.add('hidden');$('sharebar').style.removeProperty('display');
   grid.innerHTML=visible().map(cardHTML).join('')||'<p style="color:var(--muted)">Nothing matches these filters.</p>';counts();
 }
 function counts(){let w=0,d=0,r=0,q=0;st.forEach(v=>{if(v.status==='watch')w++;if(v.status==='watched')d++;if(v.score)r++;if(!v.status)q++;});$('cW').textContent=w;$('cD').textContent=d;$('cR').textContent=r;const qe=$('cQ');if(qe)qe.textContent=q;}
@@ -575,7 +582,7 @@ async function dlgImportFromTrakt(){
 
 // Full Trakt library, kept separate from the 100 cards. Informs AI export + dedupe.
 // shape: {movies:{imdb:{title,year,rating,watched,watchlisted}}, shows:{...}}
-let LIB={movies:{},shows:{}};
+// LIB declared at top (hoisted)
 const LIBLS='reel.library.v1';
 function loadLib(){try{LIB=JSON.parse(localStorage.getItem(LIBLS)||'{"movies":{},"shows":{}}');}catch(e){LIB={movies:{},shows:{}};}}
 function saveLib(){try{localStorage.setItem(LIBLS,JSON.stringify(LIB));}catch(e){}}
@@ -816,10 +823,7 @@ async function silentImport(){
 /* ============================================================
    SHARED GROUP SPACE  (common rec pool for a small known group)
    ============================================================ */
-const GROUPKEY='reel.group.v1', NAMEKEY='reel.displayname.v1';
-let GROUP=localStorage.getItem(GROUPKEY)||'';
-let sharedItems=[]; // cached shared docs
-let sharedUnsub=null;
+// GROUPKEY, NAMEKEY, GROUP, sharedItems, sharedUnsub all declared at top (hoisted)
 
 function myName(){return localStorage.getItem(NAMEKEY)|| (user&&(user.displayName||user.email)) || 'me';}
 
@@ -854,7 +858,7 @@ async function unshare(id){
 }
 
 function renderShared(){
-  const sb=$('sharebar');sb.classList.remove('hidden');sb.style.display='flex';
+  const sb=$('sharebar');sb.classList.remove('hidden');sb.style.setProperty('display','flex','important');
   if(!GROUP){grid.innerHTML='<p style="color:var(--muted)">Join a group first (top-right “Group” button) to share and see recommendations.</p>';return;}
   if(!sharedItems.length){grid.innerHTML='<p style="color:var(--muted)">No shared recommendations yet. Search a title above to share one.</p>';return;}
   grid.innerHTML=sharedItems.map(s=>{
